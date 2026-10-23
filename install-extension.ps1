@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$WhatIf
 )
 
@@ -36,12 +36,14 @@ $registryPaths = @(
 )
 
 foreach ($registryPath in $registryPaths) {
-  if (Test-Path -LiteralPath $registryPath) {
-    $registeredPath = (Get-Item -LiteralPath $registryPath).GetValue("")
-    if ($registeredPath) {
-      $chromePaths += $registeredPath
+  try {
+    if (Test-Path -LiteralPath $registryPath -ErrorAction SilentlyContinue) {
+      $registeredPath = (Get-Item -LiteralPath $registryPath -ErrorAction SilentlyContinue).GetValue("")
+      if ($registeredPath) {
+        $chromePaths += $registeredPath
+      }
     }
-  }
+  } catch {}
 }
 
 $chromePaths += @(

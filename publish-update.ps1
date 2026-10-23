@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $repoDir = $PSScriptRoot
 $manifestPath = Join-Path $repoDir "manifest.json"
 $configPath = Join-Path $repoDir "update-config.json"
