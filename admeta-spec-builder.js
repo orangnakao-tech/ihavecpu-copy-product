@@ -250,8 +250,9 @@
       data: value
     }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
-    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    input.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
   }
 
   async function calculateDIYMessage(diyUrl) {
@@ -402,6 +403,38 @@
     return { ok: true, setName: selectedSet };
   }
 
+  async function searchSpecInBuilder(searchTerm) {
+    if (isLoginPage()) throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองค้นหาสเป็คอีกครั้ง");
+    if (location.hostname !== "admeta.me" ||
+        !/^\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/.test(location.pathname)) {
+      throw new Error("กรุณาเปิดหน้า Spec Builder V2 ก่อน");
+    }
+    if (typeof searchTerm !== "string" || !searchTerm.trim() || searchTerm.length > 300) {
+      throw new Error("ไม่พบคำค้นหาสำหรับค้นหาใน AdMeta");
+    }
+
+    const hadExistingSet = !/^\/admin\/spec-builder-v2\/?$/.test(location.pathname) ||
+      hasSelectedSpec();
+    if (hadExistingSet && !(await resetBuilder())) {
+      throw new Error("พบสเป็คค้างอยู่ใน AdMeta แต่ไม่พบปุ่มรีเซ็ต");
+    }
+
+    const searchInput = await waitFor(() => {
+      if (isLoginPage()) {
+        throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองค้นหาสเป็คอีกครั้ง");
+      }
+      return findMainBuilderSearchInput();
+    }, 20000, "ไม่พบช่องค้นหาสเป็คใน AdMeta กรุณาเปิดหน้า Spec Builder V2");
+
+    const cleanTerm = searchTerm.trim();
+    try {
+      searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch {}
+    setReactInputValue(searchInput, cleanTerm);
+
+    return { ok: true, searchTerm: cleanTerm };
+  }
+
   function showStatus(message, isError) {
     let status = document.getElementById("ihavecpu-admeta-status");
     if (!status) {
@@ -448,6 +481,12 @@
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === "SEARCH_ADMETA_SPEC") {
+      searchSpecInBuilder(message.searchTerm)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error.message || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ" }));
+      return true;
+    }
     if (message?.type !== "OPEN_PROMO_SET_FOR_UPGRADE") return;
     openPromoSetForUpgrade(message.searchTerm)
       .then(sendResponse)

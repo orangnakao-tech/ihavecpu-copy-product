@@ -119,7 +119,48 @@
       if (meta?.content) imageUrl = meta.content;
     }
 
-    return { title, price, url: location.href.split("#")[0], imageUrl };
+    let sku = "";
+    const skuSelectors = [
+      "[itemprop='sku']",
+      "meta[property*='sku' i]",
+      "meta[name*='sku' i]"
+    ];
+    for (const sel of skuSelectors) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const val = clean(el.content || el.getAttribute("content") || el.innerText || el.textContent || "");
+      if (val) {
+        sku = val.replace(/^รหัสสินค้า\s*:?\s*/i, "").trim();
+        if (sku) break;
+      }
+    }
+    if (!sku) {
+      const textElements = [...document.querySelectorAll("main *, [class*='product'] *, [class*='Product'] *, body *")]
+        .filter((el) => el.children.length === 0 && visible(el));
+      for (const el of textElements) {
+        const txt = clean(el.innerText || el.textContent || "");
+        const m1 = txt.match(/รหัสสินค้า\s*:?\s*([A-Za-z0-9_./-]+)/i);
+        if (m1?.[1]) {
+          sku = m1[1].trim();
+          break;
+        }
+        const m2 = txt.match(/\b(SKU-[A-Za-z0-9_-]+)\b/i);
+        if (m2?.[1]) {
+          sku = m2[1].trim();
+          break;
+        }
+      }
+    }
+    if (!sku) {
+      const fullBodyText = document.body?.innerText || "";
+      const bodyMatch = fullBodyText.match(/รหัสสินค้า\s*:?\s*([A-Za-z0-9_./-]+)/i) ||
+        fullBodyText.match(/\b(SKU-[A-Za-z0-9_-]+)\b/i);
+      if (bodyMatch?.[1]) {
+        sku = bodyMatch[1].trim();
+      }
+    }
+
+    return { title, sku, price, url: location.href.split("#")[0], imageUrl };
   }
 
   async function copyText(text) {
@@ -156,8 +197,34 @@
     return await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error("แปลงรูปไม่สำเร็จ")), "image/png"));
   }
 
-  function formatProductText(product) {
-    return `${product.title}\n${product.price}\n\nลิงก์สินค้า: ${product.url}`;
+  function parsePriceNumber(priceStr) {
+    const cleaned = String(priceStr || "").replace(/[^0-9.]/g, "");
+    const num = parseFloat(cleaned);
+    return Number.isFinite(num) ? num : NaN;
+  }
+
+  function formatProductText(product, { addShipping50 = false } = {}) {
+    const lines = [product.title];
+    if (product.sku) {
+      lines.push(`รหัสสินค้า: ${product.sku.replace(/^รหัสสินค้า\s*:?\s*/i, "")}`);
+    }
+    lines.push(product.price);
+    const base = lines.filter(Boolean).join("\n");
+
+    if (!addShipping50) {
+      return base;
+    }
+
+    const numericPrice = parsePriceNumber(product.price);
+    if (!Number.isFinite(numericPrice)) {
+      return `${base}\n\n+50.- ค่าส่ง`;
+    }
+    const total = numericPrice + 50;
+    const hasComma = String(product.price || "").includes(",");
+    const totalStr = Number.isInteger(total)
+      ? (hasComma ? total.toLocaleString("en-US") : String(total))
+      : (hasComma ? total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : total.toFixed(2));
+    return `${base}\n\n+50.- ค่าส่ง\n\n= ${totalStr}.-`;
   }
 
   function extractDIYPrice() {
@@ -201,7 +268,7 @@
 
   async function openPromoSetInAdmeta(product) {
     const setName = product.title.trim();
-    const promoMatch = setName.match(/(?:^|[\s_(\[])(OCT[A-Z0-9]*-[A-Z0-9-]+)/i)?.[1] ||
+    const promoMatch = setName.match(/(?:^|[\s_(\[])((?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z0-9]*-[A-Z0-9-]+)/i)?.[1] ||
       setName.match(/^[A-Z0-9]+(?:-[A-Z0-9]+)+/i)?.[0];
     const promoCode = promoMatch ? promoMatch.trim() : "";
     if (!promoCode) {
@@ -215,15 +282,34 @@
     showToast(`ค้นหาและเลือกเซ็ต ${promoCode} ใน AdMeta แล้ว — เลือกชิ้นส่วนเพื่ออัปเกรดและคำนวณราคาได้เลย`);
   }
 
-  async function fillZaapi(product) {
+  async function searchSpecInAdmeta(rawQuery) {
+    const cleaned = clean(rawQuery);
+    if (!cleaned) {
+      showToast("กรุณาพิมพ์คำค้นหางบหรือสเป็คก่อนกด Enter", true);
+      return;
+    }
+    const normalizedQuery = cleaned.replace(/^เซ็ตคอม(?:พิวเตอร์)?\s+(?=งบ|\d)/i, "").trim() || cleaned;
+    const result = await chrome.runtime.sendMessage({
+      type: "SEARCH_ADMETA_SPEC",
+      searchTerm: normalizedQuery
+    });
+    if (!result?.ok) throw new Error(result?.error || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ");
+    showToast(`ค้นหา "${normalizedQuery}" ในหน้า AdMeta แล้ว`);
+  }
+
+  async function fillZaapi(product, { addShipping50 = false } = {}) {
     const result = await chrome.runtime.sendMessage({
       type: "PREPARE_ZAAPI_PRODUCT",
-      text: formatProductText(product),
+      text: formatProductText(product, { addShipping50 }),
       imageUrl: product.imageUrl,
       fileName: `${(product.title || "ihavecpu-product").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80)}.png`
     });
     if (!result?.ok) throw new Error(result?.error || "ใส่ข้อความใน Zaapi ไม่สำเร็จ");
-    showToast("ใส่ข้อความและแนบรูปในแชตแล้ว ตรวจสอบแล้วกดส่งเองได้เลย (ยังไม่ส่ง)");
+    showToast(
+      addShipping50
+        ? "ใส่ข้อความ (+ค่าส่ง 50.-) และแนบรูปในแชตแล้ว (ยังไม่ส่ง)"
+        : "ใส่ข้อความและแนบรูปในแชตแล้ว ตรวจสอบแล้วกดส่งเองได้เลย (ยังไม่ส่ง)"
+    );
   }
 
   async function downloadImage(product) {
@@ -347,10 +433,9 @@
         await copyText(formatProductText(product));
         showToast("คัดลอกข้อความสินค้าแล้ว");
       } else if (kind === "zaapi") {
-        await fillZaapi(product);
-      } else if (kind === "download") {
-        await downloadImage(product);
-        showToast("กำลังดาวน์โหลดรูปสินค้า");
+        await fillZaapi(product, { addShipping50: false });
+      } else if (kind === "zaapi-shipping") {
+        await fillZaapi(product, { addShipping50: true });
       } else {
         await copyText(formatProductText(product));
         showToast("คัดลอกข้อความสินค้าแล้ว");
@@ -378,11 +463,12 @@
       return;
     }
 
-    const productTitle = isProductPage ? extract().title : "";
-    const isPromoSet = /(?:^|[\s_(\[])OCT[A-Z0-9]*-[A-Z0-9-]+/i.test(productTitle);
+    const extracted = isProductPage ? extract() : { title: "", price: "" };
+    const productTitle = extracted.title;
+    const isPromoSet = /(?:^|[\s_(\[])(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z0-9]*-[A-Z0-9-]+/i.test(productTitle);
     const actions = isDIYShare
       ? '<button data-action="diy-admeta-zaapi">คำนวณใน AdMeta แล้วใส่ข้อความใน Zaapi</button><button class="secondary" data-action="diy-zaapi">ใส่เฉพาะลิงก์ + ราคาใน Zaapi (ไม่ส่ง)</button>'
-      : `${isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : ""}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button><button class="secondary" data-action="download">ดาวน์โหลดรูปสินค้า</button>`;
+      : `${isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : ""}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button data-action="zaapi-shipping" class="shipping-btn">สินค้าต่ำกว่า 5,000 (+50.- ค่าส่ง) ใน Zaapi</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`;
 
     if (existingWrap) {
       const body = existingWrap.querySelector(".ihc-panel-body");
@@ -403,10 +489,16 @@
           font-weight:700; color:#333; }
         #${BUTTON_ID} .ihc-panel-controls { display:flex; gap:5px; }
         #${BUTTON_ID} .ihc-panel-controls button { padding:3px 8px; color:#333; background:#f0f1f3; }
-        #${BUTTON_ID} .ihc-panel-body { display:flex; flex-direction:column; gap:7px; padding:10px; }
+        #${BUTTON_ID} .ihc-panel-search { display:flex; gap:6px; padding:10px 10px 2px 10px; }
+        #${BUTTON_ID} .ihc-admeta-search-input { flex:1; min-width:210px; padding:8px 10px;
+          border:1px solid #d0d5dd; border-radius:7px; font:13px Arial,Tahoma,sans-serif; color:#222; outline:none; }
+        #${BUTTON_ID} .ihc-admeta-search-input:focus { border-color:#d71920; box-shadow:0 0 0 2px rgba(215,25,32,.15); }
+        #${BUTTON_ID} .ihc-panel-body { display:flex; flex-direction:column; gap:7px; padding:8px 10px 10px 10px; }
+        #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-search,
         #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-body { display:none; }
         #${BUTTON_ID} button { border:0; border-radius:7px; padding:9px 12px; cursor:pointer;
           font-weight:700; color:#fff; background:#d71920; white-space:nowrap; }
+        #${BUTTON_ID} button.shipping-btn { background:#b91c1c; }
         #${BUTTON_ID} button.secondary { color:#333; background:#f0f1f3; }
         #${BUTTON_ID} button:hover { filter:brightness(.95); }
         #${BUTTON_ID}-launcher { position:fixed; right:18px; bottom:18px; z-index:2147483646;
@@ -417,8 +509,31 @@
     }
     const wrap = document.createElement("div");
     wrap.id = BUTTON_ID;
-    wrap.innerHTML = `<div class="ihc-panel-header"><span>iHAVECPU • เครื่องมือสินค้า</span><span class="ihc-panel-controls"><button type="button" data-panel-action="collapse" aria-label="ย่อหน้าต่าง">−</button><button type="button" data-panel-action="hide" aria-label="ซ่อนหน้าต่าง">×</button></span></div><div class="ihc-panel-body">${actions}</div>`;
+    wrap.innerHTML = `<div class="ihc-panel-header"><span>iHAVECPU • เครื่องมือสินค้า</span><span class="ihc-panel-controls"><button type="button" data-panel-action="collapse" aria-label="ย่อหน้าต่าง">−</button><button type="button" data-panel-action="hide" aria-label="ซ่อนหน้าต่าง">×</button></span></div><div class="ihc-panel-search"><input type="text" class="ihc-admeta-search-input" placeholder="ค้นหางบ/สเป็คใน AdMeta (เช่น งบ 20000 รวมจอ)" aria-label="ค้นหางบหรือสเป็คใน AdMeta" /><button type="button" data-panel-search="submit">ค้นหา</button></div><div class="ihc-panel-body">${actions}</div>`;
+    const searchInputEl = wrap.querySelector(".ihc-admeta-search-input");
+    if (searchInputEl) {
+      searchInputEl.addEventListener("keydown", async (event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") {
+          event.preventDefault();
+          try {
+            await searchSpecInAdmeta(searchInputEl.value);
+          } catch (error) {
+            showToast(error.message || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ", true);
+          }
+        }
+      });
+    }
     wrap.addEventListener("click", async (event) => {
+      const searchBtn = event.target.closest("button[data-panel-search]");
+      if (searchBtn) {
+        try {
+          await searchSpecInAdmeta(searchInputEl?.value || "");
+        } catch (error) {
+          showToast(error.message || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ", true);
+        }
+        return;
+      }
       const panelAction = event.target.closest("button[data-panel-action]");
       if (panelAction) {
         if (panelAction.dataset.panelAction === "collapse") {

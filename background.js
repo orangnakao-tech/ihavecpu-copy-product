@@ -415,6 +415,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "SEARCH_ADMETA_SPEC") {
+    runWithAutoResetRetry(sender.tab?.id, () => searchSpecInAdmetaTab(message.searchTerm))
+      .then((result) => {
+        sendResponse(result);
+        if (sender.tab?.id) {
+          showTabStatus(sender.tab.id, `ค้นหา "${message.searchTerm}" ใน AdMeta แล้ว`);
+        }
+      })
+      .catch((error) => {
+        sendResponse({ error: error.message || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ" });
+        if (sender.tab?.id) {
+          showTabStatus(sender.tab.id, error.message || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ", true);
+        }
+      });
+    return true;
+  }
+
   if (message?.type === "PREPARE_ZAAPI_TEXT") {
     if (!/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(sender.url || "")) {
       sendResponse({ error: "คำขอส่งข้อความสเป็ค DIY มาจากหน้าที่ไม่ได้รับอนุญาต" });
@@ -827,6 +844,68 @@ async function openPromoSetForUpgrade(searchTerm) {
 
   await showTabStatus(readyAdmetaTab.id, `เปิดเซ็ตโปร ${searchTerm.trim()} ใน AdMeta แล้ว เลือกชิ้นส่วนเพื่ออัปเกรดและคำนวณราคาได้เลย`);
   return { ok: true, setName: result.setName || searchTerm.trim() };
+}
+
+async function searchSpecInAdmetaTab(searchTerm) {
+  if (typeof searchTerm !== "string" || !searchTerm.trim() || searchTerm.length > 300) {
+    throw new Error("กรุณาระบุคำค้นหางบหรือสเป็คสำหรับค้นหาใน AdMeta");
+  }
+
+  const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
+  const admetaTab = admetaTabs
+    .filter((tab) => /^https:\/\/admeta\.me\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(tab.url || ""))
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+  let readyAdmetaTab = admetaTab;
+
+  if (!readyAdmetaTab?.id) {
+    const loginTab = admetaTabs.find((tab) =>
+      /\/(?:login|signin|sign-in|auth)(?:\/|$)/i.test(new URL(tab.url || "https://admeta.me/").pathname)
+    );
+    if (loginTab?.id) {
+      await chrome.tabs.update(loginTab.id, { active: true });
+      if (loginTab.windowId) {
+        await chrome.windows.update(loginTab.windowId, { focused: true }).catch(() => {});
+      }
+      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองค้นหาสเป็คอีกครั้ง");
+    }
+    readyAdmetaTab = await chrome.tabs.create({
+      url: "https://admeta.me/admin/spec-builder-v2",
+      active: true
+    });
+  }
+
+  await chrome.tabs.update(readyAdmetaTab.id, { active: true });
+  if (readyAdmetaTab.windowId) {
+    await chrome.windows.update(readyAdmetaTab.windowId, { focused: true }).catch(() => {});
+  }
+  if (
+    readyAdmetaTab.url &&
+    /^https:\/\/admeta\.me\/admin\/spec-builder-v2\/[^/]+/i.test(readyAdmetaTab.url)
+  ) {
+    await navigateTabAndWait(readyAdmetaTab.id, "https://admeta.me/admin/spec-builder-v2", RELOAD_TIMEOUT_MS);
+    await delay(500);
+  }
+
+  let result;
+  try {
+    result = await sendAdmetaMessage(readyAdmetaTab.id, {
+      type: "SEARCH_ADMETA_SPEC",
+      searchTerm: searchTerm.trim()
+    });
+  } catch (error) {
+    if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
+    const errorMessage = `ติดต่อหน้า AdMeta ไม่สำเร็จ กรุณาเข้าสู่ระบบและเปิดหน้า Spec Builder V2 แล้วลองอีกครั้ง (${error.message})`;
+    await showTabStatus(readyAdmetaTab.id, errorMessage, true);
+    throw new Error(errorMessage);
+  }
+  if (!result?.ok) {
+    const errorMessage = result?.error || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ";
+    await showTabStatus(readyAdmetaTab.id, errorMessage, true);
+    throw new Error(errorMessage);
+  }
+
+  await showTabStatus(readyAdmetaTab.id, `ค้นหา "${searchTerm.trim()}" ใน AdMeta แล้ว — เลือกสเปกที่ต้องการได้เลย`);
+  return { ok: true, searchTerm: searchTerm.trim() };
 }
 
 async function getProductData(tabId) {

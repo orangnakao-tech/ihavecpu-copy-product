@@ -69,4 +69,36 @@ reloadBtnEl.addEventListener("click", () => {
   chrome.runtime.sendMessage({ type: "RELOAD_EXTENSION_NOW" });
 });
 
+const admetaSearchInput = document.getElementById("admeta-search-input");
+const admetaSearchBtn = document.getElementById("admeta-search-btn");
+
+function runPopupAdmetaSearch() {
+  const raw = (admetaSearchInput?.value || "").trim();
+  if (!raw) {
+    statusEl.textContent = "กรุณาพิมพ์คำค้นหางบหรือสเป็คก่อนกด Enter";
+    return;
+  }
+  const normalized = raw.replace(/^เซ็ตคอม(?:พิวเตอร์)?\s+(?=งบ|\d)/i, "").trim() || raw;
+  statusEl.textContent = `กำลังเปิดและค้นหา "${normalized}" ใน AdMeta...`;
+  chrome.runtime.sendMessage({ type: "SEARCH_ADMETA_SPEC", searchTerm: normalized }, (res) => {
+    if (res?.ok) {
+      statusEl.textContent = `ค้นหา "${normalized}" ใน AdMeta แล้ว`;
+    } else {
+      statusEl.textContent = res?.error || "ค้นหาใน AdMeta ไม่สำเร็จ";
+    }
+  });
+}
+
+if (admetaSearchInput) {
+  admetaSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      runPopupAdmetaSearch();
+    }
+  });
+}
+if (admetaSearchBtn) {
+  admetaSearchBtn.addEventListener("click", runPopupAdmetaSearch);
+}
+
 load();
