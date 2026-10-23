@@ -1,4 +1,4 @@
-﻿param(
+param(
   [switch]$Silent,
   [switch]$Force
 )
@@ -56,7 +56,7 @@ function Compare-SemVer($v1, $v2) {
 }
 
 if (-not (Test-Path -LiteralPath $configPath)) {
-  Write-Info "ไม่พบไฟล์ update-config.json ใน $targetDir" "Red"
+  Write-Info "$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C) update-config.json $([char]0x0E43)$([char]0x0E19) $targetDir" "Red"
   exit 1
 }
 
@@ -85,9 +85,9 @@ $headers = @{
 
 $remoteVersion = $null
 
-Write-Info "กำลังเช็กเวอร์ชันล่าสุดจาก GitHub ($owner/$repo)..."
+Write-Info "$([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)$([char]0x0E01)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E25)$([char]0x0E48)$([char]0x0E32)$([char]0x0E2A)$([char]0x0E38)$([char]0x0E14)$([char]0x0E08)$([char]0x0E32)$([char]0x0E01) GitHub ($owner/$repo)..."
 
-# 1. ลองดึงผ่าน GitHub API ก่อน (ไม่ติด Cache 5 นาทีของ raw.githubusercontent.com)
+# 1.  GitHub API  ( Cache 5  raw.githubusercontent.com)
 $apiUrls = @(
   "https://api.github.com/repos/$owner/$repo/contents/manifest.json?ref=$branch&t=$ts",
   "https://api.github.com/repos/$owner/$repo/contents/ihavecpu-copy-product-v4/manifest.json?ref=$branch&t=$ts"
@@ -107,7 +107,7 @@ foreach ($apiUrl in $apiUrls) {
   } catch {}
 }
 
-# 2. Fallback ดึงจาก raw.githubusercontent.com (กรณีติด Rate Limit ของ GitHub API)
+# 2. Fallback  raw.githubusercontent.com ( Rate Limit  GitHub API)
 $rawUrls = @(
   "https://raw.githubusercontent.com/$owner/$repo/$branch/manifest.json?t=$ts",
   "https://raw.githubusercontent.com/$owner/$repo/$branch/ihavecpu-copy-product-v4/manifest.json?t=$ts"
@@ -132,18 +132,18 @@ foreach ($rawUrl in $rawUrls) {
 }
 
 if ([string]::IsNullOrWhiteSpace($remoteVersion)) {
-  Write-Info "ยังไม่พบไฟล์ manifest.json บน GitHub ($owner/$repo) หรือเชื่อมต่อไม่ได้ในขณะนี้" "Yellow"
+  Write-Info "$([char]0x0E22)$([char]0x0E31)$([char]0x0E07)$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C) manifest.json $([char]0x0E1A)$([char]0x0E19) GitHub ($owner/$repo) $([char]0x0E2B)$([char]0x0E23)$([char]0x0E37)$([char]0x0E2D)$([char]0x0E40)$([char]0x0E0A)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E21)$([char]0x0E15)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E44)$([char]0x0E14)$([char]0x0E49)$([char]0x0E43)$([char]0x0E19)$([char]0x0E02)$([char]0x0E13)$([char]0x0E30)$([char]0x0E19)$([char]0x0E35)$([char]0x0E49)" "Yellow"
   Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
   exit 0
 }
 
 if (-not $Force -and ((Compare-SemVer $remoteVersion $localVersion) -le 0)) {
-  Write-Info "ส่วนขยายเป็นเวอร์ชันล่าสุดแล้ว (v$localVersion)" "Green"
+  Write-Info "$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E47)$([char]0x0E19)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E25)$([char]0x0E48)$([char]0x0E32)$([char]0x0E2A)$([char]0x0E38)$([char]0x0E14)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27) (v$localVersion)" "Green"
   Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
   exit 0
 }
 
-Write-Info "พบเวอร์ชันใหม่ v$remoteVersion (ในเครื่อง v$localVersion) กำลังดาวน์โหลดอัปเดต..." "Green"
+Write-Info "$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E43)$([char]0x0E2B)$([char]0x0E21)$([char]0x0E48) v$remoteVersion ($([char]0x0E43)$([char]0x0E19)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07) v$localVersion) $([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E14)$([char]0x0E32)$([char]0x0E27)$([char]0x0E19)$([char]0x0E4C)$([char]0x0E42)$([char]0x0E2B)$([char]0x0E25)$([char]0x0E14)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)..." "Green"
 
 $tempZip = Join-Path $env:TEMP "ihavecpu-ext-update-$([Guid]::NewGuid().ToString('N')).zip"
 $tempExtract = Join-Path $env:TEMP "ihavecpu-ext-extract-$([Guid]::NewGuid().ToString('N'))"
@@ -156,7 +156,7 @@ try {
 
   $extractedRoot = Get-ChildItem -LiteralPath $tempExtract -Directory | Select-Object -First 1
   if (-not $extractedRoot) {
-    throw "ไม่พบโฟลเดอร์ภายในไฟล์ ZIP ที่ดาวน์โหลดมา"
+    throw "$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E42)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E40)$([char]0x0E14)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E20)$([char]0x0E32)$([char]0x0E22)$([char]0x0E43)$([char]0x0E19)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C) ZIP $([char]0x0E17)$([char]0x0E35)$([char]0x0E48)$([char]0x0E14)$([char]0x0E32)$([char]0x0E27)$([char]0x0E19)$([char]0x0E4C)$([char]0x0E42)$([char]0x0E2B)$([char]0x0E25)$([char]0x0E14)$([char]0x0E21)$([char]0x0E32)"
   }
 
   $sourceFolder = $extractedRoot.FullName
@@ -176,7 +176,7 @@ try {
     Copy-Item -LiteralPath $_.FullName -Destination $targetDir -Recurse -Force
   }
 
-  # รักษาค่า update-config.json ของเครื่องแอดมินไว้เสมอ
+  #  update-config.json 
   $newConfigPath = Join-Path $targetDir "update-config.json"
   if (Test-Path -LiteralPath $newConfigPath) {
     try {
@@ -191,9 +191,9 @@ try {
     } catch {}
   }
 
-  Write-Info "อัปเดตไฟล์ส่วนขยายเป็นเวอร์ชัน v$remoteVersion สำเร็จแล้ว! ตัวส่วนขยายใน Chrome จะรีโหลดตัวเองอัตโนมัติ" "Green"
+  Write-Info "$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C)$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E47)$([char]0x0E19)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19) v$remoteVersion $([char]0x0E2A)$([char]0x0E33)$([char]0x0E40)$([char]0x0E23)$([char]0x0E47)$([char]0x0E08)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27)! $([char]0x0E15)$([char]0x0E31)$([char]0x0E27)$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E43)$([char]0x0E19) Chrome $([char]0x0E08)$([char]0x0E30)$([char]0x0E23)$([char]0x0E35)$([char]0x0E42)$([char]0x0E2B)$([char]0x0E25)$([char]0x0E14)$([char]0x0E15)$([char]0x0E31)$([char]0x0E27)$([char]0x0E40)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E15)$([char]0x0E42)$([char]0x0E19)$([char]0x0E21)$([char]0x0E31)$([char]0x0E15)$([char]0x0E34)" "Green"
 } catch {
-  Write-Info "เกิดข้อผิดพลาดระหว่างอัปเดต: $($_.Exception.Message)" "Red"
+  Write-Info "$([char]0x0E40)$([char]0x0E01)$([char]0x0E34)$([char]0x0E14)$([char]0x0E02)$([char]0x0E49)$([char]0x0E2D)$([char]0x0E1C)$([char]0x0E34)$([char]0x0E14)$([char]0x0E1E)$([char]0x0E25)$([char]0x0E32)$([char]0x0E14)$([char]0x0E23)$([char]0x0E30)$([char]0x0E2B)$([char]0x0E27)$([char]0x0E48)$([char]0x0E32)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15): $($_.Exception.Message)" "Red"
   exit 1
 } finally {
   if (Test-Path -LiteralPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue }
