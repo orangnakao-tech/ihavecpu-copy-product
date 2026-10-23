@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$WhatIf
 )
 
@@ -72,7 +72,8 @@ if (-not (Test-Path -LiteralPath $permanentDirectory)) {
   New-Item -ItemType Directory -Path $permanentDirectory -Force | Out-Null
 }
 if ($sourceDirectory -ne $permanentDirectory) {
-  Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object { $_.Name -ne ".git" } | ForEach-Object {
+  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|README-.*|TEST_CHECKLIST\.md)$'
+  Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object { $_.Name -notmatch $excludedPattern } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $permanentDirectory -Recurse -Force
   }
 }

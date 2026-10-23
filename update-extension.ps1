@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Silent,
   [switch]$Force
 )
@@ -169,7 +169,8 @@ try {
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
   }
 
-  Get-ChildItem -LiteralPath $sourceFolder -Force | Where-Object { $_.Name -ne ".git" } | ForEach-Object {
+  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|README-.*|TEST_CHECKLIST\.md)$'
+  Get-ChildItem -LiteralPath $sourceFolder -Force | Where-Object { $_.Name -notmatch $excludedPattern } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $targetDir -Recurse -Force
   }
 
