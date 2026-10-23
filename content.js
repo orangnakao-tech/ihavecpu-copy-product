@@ -326,6 +326,43 @@
 
   function showToast(message, isError = false) {
     let toast = document.getElementById("ihavecpu-copy-toast");
+    if (location.hostname === "app.zaapi.com") {
+      if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "ihavecpu-copy-toast";
+        document.body.appendChild(toast);
+      }
+      Object.assign(toast.style, {
+        position: "fixed",
+        right: "18px",
+        bottom: "82px",
+        zIndex: "2147483647",
+        width: "14px",
+        height: "14px",
+        padding: "0",
+        borderRadius: "50%",
+        background: isError ? "#ef4444" : "#22c55e",
+        boxShadow: isError
+          ? "0 0 0 4px rgba(239, 68, 68, 0.28), 0 2px 8px rgba(0,0,0,.3)"
+          : "0 0 0 4px rgba(34, 197, 94, 0.28), 0 2px 8px rgba(0,0,0,.3)",
+        pointerEvents: "none",
+        transition: "transform 0.18s ease, opacity 0.18s ease",
+        transform: "scale(1)",
+        opacity: "1",
+        display: "block"
+      });
+      toast.textContent = "";
+      toast.title = message || "";
+      clearTimeout(toast.__hideTimer);
+      clearTimeout(toast.__fadeTimer);
+      toast.__hideTimer = setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "scale(0.6)";
+        toast.__fadeTimer = setTimeout(() => { toast.style.display = "none"; }, 180);
+      }, 1500);
+      return;
+    }
+
     if (!toast) {
       toast = document.createElement("div");
       toast.id = "ihavecpu-copy-toast";
