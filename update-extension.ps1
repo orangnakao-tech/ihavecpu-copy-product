@@ -4,6 +4,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 $targetDir = Join-Path $env:LOCALAPPDATA "iHAVECPU-Copy-Product"
 if (-not (Test-Path -LiteralPath $targetDir)) {
   $targetDir = $PSScriptRoot
@@ -150,7 +151,8 @@ $zipUrl = "https://github.com/$owner/$repo/archive/refs/heads/$branch.zip?t=$ts"
 
 try {
   Invoke-WebRequest -Uri $zipUrl -Headers $headers -OutFile $tempZip -UseBasicParsing -TimeoutSec 30
-  Expand-Archive -LiteralPath $tempZip -DestinationPath $tempExtract -Force
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($tempZip, $tempExtract)
 
   $extractedRoot = Get-ChildItem -LiteralPath $tempExtract -Directory | Select-Object -First 1
   if (-not $extractedRoot) {
