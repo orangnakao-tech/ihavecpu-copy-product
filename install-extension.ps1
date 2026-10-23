@@ -125,13 +125,12 @@ if ($taskCreated) {
 }
 
 function Open-ChromeExtensionsPage($chromeExe, $extFolder) {
-  Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
-
-  if (-not ("Win32ChromeActivator" -as [type])) {
+  if (-not ("Win32ChromeKeyHelper" -as [type])) {
     Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public class Win32ChromeActivator {
+using System.Threading;
+public class Win32ChromeKeyHelper {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
@@ -140,6 +139,13 @@ public class Win32ChromeActivator {
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fAltTab);
   [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+  public const uint KEYEVENTF_KEYUP = 0x0002;
+  public const byte VK_CONTROL = 0x11;
+  public const byte VK_RETURN = 0x0D;
+  public const byte VK_ESCAPE = 0x1B;
+  public const byte VK_L = 0x4C;
+  public const byte VK_V = 0x56;
 
   public static void ForceForeground(IntPtr hWnd) {
     if (hWnd == IntPtr.Zero) return;
@@ -156,12 +162,28 @@ public class Win32ChromeActivator {
         AttachThreadInput(fgThread, targetThread, false);
       }
     }
-    keybd_event(0x12, 0, 0, UIntPtr.Zero);
-    keybd_event(0x12, 0, 2, UIntPtr.Zero);
+    keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     ShowWindow(hWnd, 9);
     BringWindowToTop(hWnd);
     SetForegroundWindow(hWnd);
     SwitchToThisWindow(hWnd, true);
+  }
+
+  public static void SendCtrlKey(byte vk) {
+    keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+    Thread.Sleep(30);
+    keybd_event(vk, 0, 0, UIntPtr.Zero);
+    Thread.Sleep(30);
+    keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    Thread.Sleep(30);
+    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+  }
+
+  public static void SendKey(byte vk) {
+    keybd_event(vk, 0, 0, UIntPtr.Zero);
+    Thread.Sleep(30);
+    keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
   }
 }
 "@ -ErrorAction SilentlyContinue
@@ -169,7 +191,6 @@ public class Win32ChromeActivator {
 
   $wsh = New-Object -ComObject WScript.Shell
 
-  # Start Chrome with about:blank so a clean tab opens immediately and takes focus
   Start-Process -FilePath $chromeExe -ArgumentList "about:blank" | Out-Null
   Start-Sleep -Milliseconds 1000
 
@@ -196,22 +217,19 @@ public class Win32ChromeActivator {
       break
     }
 
-    [Win32ChromeActivator]::ForceForeground($hwnd)
+    [Win32ChromeKeyHelper]::ForceForeground($hwnd)
     try { $wsh.AppActivate($chromeWin.Id) | Out-Null } catch {}
-    Start-Sleep -Milliseconds 300
+    Start-Sleep -Milliseconds 250
 
     Set-Clipboard -Value "chrome://extensions/"
-    try {
-      [System.Windows.Forms.SendKeys]::SendWait("^l")
-      Start-Sleep -Milliseconds 200
-      [System.Windows.Forms.SendKeys]::SendWait("^v")
-      Start-Sleep -Milliseconds 150
-      [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-    } catch {
-      $wsh.SendKeys("^l")
-      Start-Sleep -Milliseconds 200
-      $wsh.SendKeys("^v{ENTER}")
-    }
+    Start-Sleep -Milliseconds 100
+
+    # Use Virtual Key Codes (0x4C = L, 0x56 = V, 0x0D = Enter) so it works regardless of Thai/English keyboard layout!
+    [Win32ChromeKeyHelper]::SendCtrlKey(0x4C)
+    Start-Sleep -Milliseconds 250
+    [Win32ChromeKeyHelper]::SendCtrlKey(0x56)
+    Start-Sleep -Milliseconds 200
+    [Win32ChromeKeyHelper]::SendKey(0x0D)
 
     $waitLimit = (Get-Date).AddSeconds(2)
     while ((Get-Date) -lt $waitLimit) {
@@ -223,12 +241,10 @@ public class Win32ChromeActivator {
     }
   }
 
-  # Put the permanent extension folder path into Clipboard for instant Ctrl+V
   try {
     Set-Clipboard -Value $extFolder
   } catch {}
 
-  # Try auto-clicking Load Unpacked inside a timeout-protected background job (max 4 seconds, never hangs)
   $autoInstalled = $false
   try {
     $job = Start-Job -ScriptBlock {
