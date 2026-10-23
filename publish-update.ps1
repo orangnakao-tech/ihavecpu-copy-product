@@ -64,10 +64,9 @@ Write-Host "กำลังส่งโค้ดขึ้น GitHub (git add / c
 
 Push-Location $repoDir
 try {
+  $ErrorActionPreference = "Continue"
   $safeRepoDir = $repoDir -replace '\\', '/'
-  try {
-    git config --global --add safe.directory $safeRepoDir 2>$null
-  } catch {}
+  git config --global --add safe.directory $safeRepoDir 2>$null
 
   if (-not (Test-Path -LiteralPath (Join-Path $repoDir ".git"))) {
     git -c safe.directory=* init
@@ -75,10 +74,7 @@ try {
   }
 
   $remoteUrl = "https://github.com/$owner/$repo.git"
-  $existingRemote = ""
-  try {
-    $existingRemote = (git -c safe.directory=* remote get-url origin 2>$null)
-  } catch {}
+  $existingRemote = (git -c safe.directory=* remote get-url origin 2>$null)
 
   if ([string]::IsNullOrWhiteSpace($existingRemote)) {
     git -c safe.directory=* remote add origin $remoteUrl
@@ -93,6 +89,13 @@ try {
   }
   git -c safe.directory=* branch -M $branch
   git -c safe.directory=* push -u origin $branch
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "กำลังซิงก์ทับเวอร์ชันบน GitHub ให้ตรงกับเครื่องปัจจุบัน..." -ForegroundColor Yellow
+    git -c safe.directory=* push -u origin $branch --force
+  }
+  if ($LASTEXITCODE -ne 0) {
+    throw "คำสั่ง git push ไม่สำเร็จ (รหัส: $LASTEXITCODE)"
+  }
 
   Write-Host ""
   Write-Host "สำเร็จ! ปล่อยอัปเดตเวอร์ชัน $newVer ขึ้น GitHub ($remoteUrl) เรียบร้อยแล้ว" -ForegroundColor Green
