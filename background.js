@@ -1067,6 +1067,17 @@ async function fetchRemoteManifestVersion(owner, repo, branch) {
   return null;
 }
 
+async function broadcastUpdateNotice(statusObj) {
+  try {
+    const tabs = await chrome.tabs.query({ url: MATCHING_URL_PATTERNS });
+    for (const tab of tabs) {
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: "SHOW_UPDATE_NOTICE", status: statusObj }).catch(() => {});
+      }
+    }
+  } catch {}
+}
+
 async function quickCheckDiskUpdate() {
   const now = Date.now();
   if (now - lastQuickDiskCheckAt < 15000 || activeOperationsCount > 0 || autoReloadPromise) return;
@@ -1077,15 +1088,8 @@ async function quickCheckDiskUpdate() {
     if (diskRes.ok) {
       const diskText = (await diskRes.text()).replace(/^\uFEFF/, "").trim();
       const diskManifest = JSON.parse(diskText);
-      if (diskManifest?.version && diskManifest.version !== loadedVersion && activeOperationsCount === 0 && !autoReloadPromise) {
-        await chrome.storage.local.set({
-          lastAutoUpdateReload: {
-            fromVersion: loadedVersion,
-            toVersion: diskManifest.version,
-            timestamp: Date.now()
-          }
-        });
-        chrome.runtime.reload();
+      if (diskManifest?.version && diskManifest.version !== loadedVersion) {
+        await checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
       }
     }
   } catch {}
@@ -1095,7 +1099,7 @@ chrome.tabs.onActivated.addListener(() => {
   quickCheckDiskUpdate();
 });
 
-async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {}) {
+async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = false } = {}) {
   const loadedVersion = chrome.runtime.getManifest().version;
   let diskVersion = loadedVersion;
   let remoteVersion = null;
@@ -1163,6 +1167,7 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {})
     branch: config.branch
   };
   await chrome.storage.local.set({ updateStatus: statusObj });
+  await broadcastUpdateNotice(statusObj);
   return statusObj;
 }
 
@@ -1179,16 +1184,22 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   setupUpdateAlarm();
-  checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true });
+  checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === UPDATE_ALARM_NAME) {
-    checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true });
+    checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
   }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "OPEN_CHROME_EXTENSIONS_PAGE") {
+    chrome.tabs.create({ url: "chrome://extensions/", active: true })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.type === "CHECK_EXTENSION_UPDATE") {
     checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: Boolean(message.autoReload) })
       .then((status) => sendResponse({ ok: true, status }))

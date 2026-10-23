@@ -461,7 +461,90 @@
     status.__hideTimer = setTimeout(() => { status.style.display = "none"; }, 7000);
   }
 
+  let dismissedUpdateVersion = "";
+
+  function showUpdateNotice(status) {
+    if (!status || (!status.diskNeedsReload && !status.remoteHasNewer)) {
+      document.getElementById("ihavecpu-update-notice")?.remove();
+      return;
+    }
+    const targetVersion = status.remoteVersion || status.diskVersion || "ใหม่";
+    try {
+      if (dismissedUpdateVersion === targetVersion || sessionStorage.getItem("ihavecpu_dismissed_update") === targetVersion) {
+        return;
+      }
+    } catch {}
+
+    let box = document.getElementById("ihavecpu-update-notice");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "ihavecpu-update-notice";
+      Object.assign(box.style, {
+        position: "fixed",
+        right: "18px",
+        top: "18px",
+        zIndex: "2147483647",
+        width: "340px",
+        maxWidth: "calc(100vw - 28px)",
+        background: "#fff",
+        border: "2px solid #d71920",
+        borderRadius: "12px",
+        boxShadow: "0 6px 24px rgba(0,0,0,.25)",
+        padding: "12px 14px",
+        font: "13px/1.5 Arial,Tahoma,sans-serif",
+        color: "#222"
+      });
+      box.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+          <strong style="color:#d71920;font-size:14px;">🔔 มีอัปเดตส่วนขยาย iHAVECPU ใหม่!</strong>
+          <button type="button" data-update-close="1" aria-label="ปิดข้อความ" title="ปิดข้อความ" style="border:0;background:#f2f4f7;color:#333;width:26px;height:26px;border-radius:6px;cursor:pointer;font:700 16px/1 Arial,sans-serif;display:flex;align-items:center;justify-content:center;">×</button>
+        </div>
+        <div class="ihc-update-msg" style="margin-bottom:10px;color:#333;">
+          ตรวจพบอัปเดตเวอร์ชันใหม่ (v<span class="ihc-update-ver"></span>) กรุณาไปกดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยายของ Chrome
+        </div>
+        <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;background:#d71920;color:#fff;text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;">
+          ไปที่หน้าส่วนขยาย (chrome://extensions/)
+        </a>
+      `;
+      box.addEventListener("click", (event) => {
+        if (event.target.closest("[data-update-close]")) {
+          dismissedUpdateVersion = box.dataset.version || targetVersion;
+          try {
+            sessionStorage.setItem("ihavecpu_dismissed_update", dismissedUpdateVersion);
+          } catch {}
+          box.remove();
+          return;
+        }
+        const openLink = event.target.closest("[data-open-extensions]");
+        if (openLink) {
+          event.preventDefault();
+          chrome.runtime.sendMessage({ type: "OPEN_CHROME_EXTENSIONS_PAGE" }).catch(() => {});
+        }
+      });
+      document.body.appendChild(box);
+    }
+    box.dataset.version = targetVersion;
+    const verSpan = box.querySelector(".ihc-update-ver");
+    if (verSpan) verSpan.textContent = targetVersion;
+  }
+
+  chrome.storage.local.get({ updateStatus: null }).then(({ updateStatus }) => {
+    if (updateStatus && (updateStatus.diskNeedsReload || updateStatus.remoteHasNewer)) {
+      showUpdateNotice(updateStatus);
+    }
+  }).catch(() => {});
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.updateStatus) {
+      showUpdateNotice(changes.updateStatus.newValue);
+    }
+  });
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === "SHOW_UPDATE_NOTICE") {
+      showUpdateNotice(message.status);
+      return;
+    }
     if (message?.type === "CHECK_UNSAVED_INPUT") {
       sendResponse({
         hasUnsaved: false,

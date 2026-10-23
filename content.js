@@ -203,7 +203,7 @@
     return Number.isFinite(num) ? num : NaN;
   }
 
-  function formatProductText(product, { addShipping50 = false } = {}) {
+  function formatProductText(product) {
     const lines = [product.title];
     if (product.sku) {
       lines.push(`รหัสสินค้า: ${product.sku.replace(/^รหัสสินค้า\s*:?\s*/i, "")}`);
@@ -211,14 +211,11 @@
     lines.push(product.price);
     const base = lines.filter(Boolean).join("\n");
 
-    if (!addShipping50) {
+    const numericPrice = parsePriceNumber(product.price);
+    if (!Number.isFinite(numericPrice) || numericPrice <= 0 || numericPrice >= 5000) {
       return base;
     }
 
-    const numericPrice = parsePriceNumber(product.price);
-    if (!Number.isFinite(numericPrice)) {
-      return `${base}\n\n+50.- ค่าส่ง`;
-    }
     const total = numericPrice + 50;
     const hasComma = String(product.price || "").includes(",");
     const totalStr = Number.isInteger(total)
@@ -297,17 +294,20 @@
     showToast(`ค้นหา "${normalizedQuery}" ในหน้า AdMeta แล้ว`);
   }
 
-  async function fillZaapi(product, { addShipping50 = false } = {}) {
+  async function fillZaapi(product) {
+    const formattedText = formatProductText(product);
+    const numericPrice = parsePriceNumber(product.price);
+    const hasShipping50 = Number.isFinite(numericPrice) && numericPrice > 0 && numericPrice < 5000;
     const result = await chrome.runtime.sendMessage({
       type: "PREPARE_ZAAPI_PRODUCT",
-      text: formatProductText(product, { addShipping50 }),
+      text: formattedText,
       imageUrl: product.imageUrl,
       fileName: `${(product.title || "ihavecpu-product").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80)}.png`
     });
     if (!result?.ok) throw new Error(result?.error || "ใส่ข้อความใน Zaapi ไม่สำเร็จ");
     showToast(
-      addShipping50
-        ? "ใส่ข้อความ (+ค่าส่ง 50.-) และแนบรูปในแชตแล้ว (ยังไม่ส่ง)"
+      hasShipping50
+        ? "ใส่ข้อความ (+50.- ค่าส่ง) และแนบรูปในแชตแล้ว ตรวจสอบแล้วกดส่งเองได้เลย (ยังไม่ส่ง)"
         : "ใส่ข้อความและแนบรูปในแชตแล้ว ตรวจสอบแล้วกดส่งเองได้เลย (ยังไม่ส่ง)"
     );
   }
@@ -433,9 +433,7 @@
         await copyText(formatProductText(product));
         showToast("คัดลอกข้อความสินค้าแล้ว");
       } else if (kind === "zaapi") {
-        await fillZaapi(product, { addShipping50: false });
-      } else if (kind === "zaapi-shipping") {
-        await fillZaapi(product, { addShipping50: true });
+        await fillZaapi(product);
       } else {
         await copyText(formatProductText(product));
         showToast("คัดลอกข้อความสินค้าแล้ว");
@@ -452,23 +450,97 @@
     }
   }
 
+  let dismissedUpdateVersion = "";
+
+  function showUpdateNotice(status) {
+    if (!status || (!status.diskNeedsReload && !status.remoteHasNewer)) {
+      document.getElementById("ihavecpu-update-notice")?.remove();
+      return;
+    }
+    const targetVersion = status.remoteVersion || status.diskVersion || "ใหม่";
+    try {
+      if (dismissedUpdateVersion === targetVersion || sessionStorage.getItem("ihavecpu_dismissed_update") === targetVersion) {
+        return;
+      }
+    } catch {}
+
+    let box = document.getElementById("ihavecpu-update-notice");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "ihavecpu-update-notice";
+      Object.assign(box.style, {
+        position: "fixed",
+        right: "18px",
+        top: "18px",
+        zIndex: "2147483647",
+        width: "340px",
+        maxWidth: "calc(100vw - 28px)",
+        background: "#fff",
+        border: "2px solid #d71920",
+        borderRadius: "12px",
+        boxShadow: "0 6px 24px rgba(0,0,0,.25)",
+        padding: "12px 14px",
+        font: "13px/1.5 Arial,Tahoma,sans-serif",
+        color: "#222"
+      });
+      box.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+          <strong style="color:#d71920;font-size:14px;">🔔 มีอัปเดตส่วนขยาย iHAVECPU ใหม่!</strong>
+          <button type="button" data-update-close="1" aria-label="ปิดข้อความ" title="ปิดข้อความ" style="border:0;background:#f2f4f7;color:#333;width:26px;height:26px;border-radius:6px;cursor:pointer;font:700 16px/1 Arial,sans-serif;display:flex;align-items:center;justify-content:center;">×</button>
+        </div>
+        <div class="ihc-update-msg" style="margin-bottom:10px;color:#333;">
+          ตรวจพบอัปเดตเวอร์ชันใหม่ (v<span class="ihc-update-ver"></span>) กรุณาไปกดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยายของ Chrome
+        </div>
+        <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;background:#d71920;color:#fff;text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;">
+          ไปที่หน้าส่วนขยาย (chrome://extensions/)
+        </a>
+      `;
+      box.addEventListener("click", (event) => {
+        if (event.target.closest("[data-update-close]")) {
+          dismissedUpdateVersion = box.dataset.version || targetVersion;
+          try {
+            sessionStorage.setItem("ihavecpu_dismissed_update", dismissedUpdateVersion);
+          } catch {}
+          box.remove();
+          return;
+        }
+        const openLink = event.target.closest("[data-open-extensions]");
+        if (openLink) {
+          event.preventDefault();
+          chrome.runtime.sendMessage({ type: "OPEN_CHROME_EXTENSIONS_PAGE" }).catch(() => {});
+        }
+      });
+      document.body.appendChild(box);
+    }
+    box.dataset.version = targetVersion;
+    const verSpan = box.querySelector(".ihc-update-ver");
+    if (verSpan) verSpan.textContent = targetVersion;
+  }
+
   function addButton() {
     const isDIYShare = /^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(location.href);
-    const isProductPage = /^https:\/\/(www\.)?ihavecpu\.com\//i.test(location.href) && !isDIYShare;
+    const isIhavecpuSite = /^https:\/\/(www\.)?ihavecpu\.com\//i.test(location.href) && !isDIYShare;
     const existingWrap = document.getElementById(BUTTON_ID);
     const existingLauncher = document.getElementById(`${BUTTON_ID}-launcher`);
-    if (!isDIYShare && !isProductPage) {
+    if (!isDIYShare && !isIhavecpuSite) {
       existingWrap?.remove();
       existingLauncher?.remove();
       return;
     }
 
-    const extracted = isProductPage ? extract() : { title: "", price: "" };
+    const extracted = isIhavecpuSite ? extract() : { title: "", price: "", sku: "" };
+    const isListingOrNonProductPath = /^\/(?:$|category(?:\/|$)|search(?:\/|$)|diy\/?$|promotion(?:\/|$)|brand(?:\/|$)|cart(?:\/|$)|checkout(?:\/|$)|account(?:\/|$)|login(?:\/|$)|register(?:\/|$)|article(?:\/|$)|blog(?:\/|$)|contact(?:\/|$)|about(?:\/|$))/i.test(location.pathname);
+    const hasProduct = isIhavecpuSite && !isListingOrNonProductPath && (
+      (/^\/product\/[^/?#]+/i.test(location.pathname) && Boolean(extracted.title && extracted.price)) ||
+      Boolean(extracted.title && extracted.price && extracted.sku)
+    );
     const productTitle = extracted.title;
     const isPromoSet = /(?:^|[\s_(\[])(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z0-9]*-[A-Z0-9-]+/i.test(productTitle);
     const actions = isDIYShare
       ? '<button data-action="diy-admeta-zaapi">คำนวณใน AdMeta แล้วใส่ข้อความใน Zaapi</button><button class="secondary" data-action="diy-zaapi">ใส่เฉพาะลิงก์ + ราคาใน Zaapi (ไม่ส่ง)</button>'
-      : `${isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : ""}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button data-action="zaapi-shipping" class="shipping-btn">สินค้าต่ำกว่า 5,000 (+50.- ค่าส่ง) ใน Zaapi</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`;
+      : hasProduct
+        ? `${isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : ""}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`
+        : "";
 
     if (existingWrap) {
       const body = existingWrap.querySelector(".ihc-panel-body");
@@ -489,16 +561,16 @@
           font-weight:700; color:#333; }
         #${BUTTON_ID} .ihc-panel-controls { display:flex; gap:5px; }
         #${BUTTON_ID} .ihc-panel-controls button { padding:3px 8px; color:#333; background:#f0f1f3; }
-        #${BUTTON_ID} .ihc-panel-search { display:flex; gap:6px; padding:10px 10px 2px 10px; }
+        #${BUTTON_ID} .ihc-panel-search { display:flex; gap:6px; padding:10px; }
         #${BUTTON_ID} .ihc-admeta-search-input { flex:1; min-width:210px; padding:8px 10px;
           border:1px solid #d0d5dd; border-radius:7px; font:13px Arial,Tahoma,sans-serif; color:#222; outline:none; }
         #${BUTTON_ID} .ihc-admeta-search-input:focus { border-color:#d71920; box-shadow:0 0 0 2px rgba(215,25,32,.15); }
-        #${BUTTON_ID} .ihc-panel-body { display:flex; flex-direction:column; gap:7px; padding:8px 10px 10px 10px; }
+        #${BUTTON_ID} .ihc-panel-body { display:flex; flex-direction:column; gap:7px; padding:0 10px 10px 10px; }
+        #${BUTTON_ID} .ihc-panel-body:empty { display:none; }
         #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-search,
         #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-body { display:none; }
         #${BUTTON_ID} button { border:0; border-radius:7px; padding:9px 12px; cursor:pointer;
           font-weight:700; color:#fff; background:#d71920; white-space:nowrap; }
-        #${BUTTON_ID} button.shipping-btn { background:#b91c1c; }
         #${BUTTON_ID} button.secondary { color:#333; background:#f0f1f3; }
         #${BUTTON_ID} button:hover { filter:brightness(.95); }
         #${BUTTON_ID}-launcher { position:fixed; right:18px; bottom:18px; z-index:2147483646;
@@ -635,7 +707,9 @@
 
   let lastPageKey = "";
   function syncPageControls() {
-    const pageKey = `${location.href}\n${document.title}\n${document.querySelector("main h1, h1")?.textContent || ""}`;
+    const isIhc = /^https:\/\/(www\.)?ihavecpu\.com\//i.test(location.href);
+    const snap = isIhc ? extract() : { title: "", price: "", sku: "" };
+    const pageKey = `${location.href}\n${document.title}\n${document.querySelector("main h1, h1")?.textContent || ""}\n${snap.title}\n${snap.price}\n${snap.sku}`;
     if (pageKey === lastPageKey) return;
     lastPageKey = pageKey;
     addButton();
@@ -646,7 +720,16 @@
   window.addEventListener("hashchange", syncPageControls);
   window.setInterval(syncPageControls, 500);
 
+  chrome.storage.local.get({ updateStatus: null }).then(({ updateStatus }) => {
+    if (updateStatus && (updateStatus.diskNeedsReload || updateStatus.remoteHasNewer)) {
+      showUpdateNotice(updateStatus);
+    }
+  }).catch(() => {});
+
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.updateStatus) {
+      showUpdateNotice(changes.updateStatus.newValue);
+    }
     if (area !== "sync" || !changes.mode) return;
     const wrap = document.getElementById(BUTTON_ID);
     const launcher = document.getElementById(`${BUTTON_ID}-launcher`);
@@ -776,6 +859,9 @@
     }
     if (message?.type === "SHOW_STATUS") {
       showToast(message.message || "", message.isError === true);
+    }
+    if (message?.type === "SHOW_UPDATE_NOTICE") {
+      showUpdateNotice(message.status);
     }
   });
 
