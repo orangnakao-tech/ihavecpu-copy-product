@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ตั้งค่าคัดลอกสินค้า</title>
+<style>
+body{font-family:Arial,Tahoma,sans-serif;width:330px;padding:16px;margin:0;color:#202124}
+.header-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+h1{font-size:16px;margin:0}
+.ver-badge{background:#fce8e6;color:#d71920;font-weight:700;font-size:11px;padding:3px 8px;border-radius:12px}
+p{font-size:12.5px;line-height:1.5;color:#5f6368;margin:8px 0}
+label{display:flex;gap:8px;align-items:flex-start;padding:7px 0;font-size:13px;line-height:1.45}
+button{width:100%;border:0;border-radius:8px;padding:10px;background:#d71920;color:#fff;font-weight:700;cursor:pointer;margin-top:8px;font-size:13px}
+button.secondary{background:#f0f1f3;color:#202124}
+button.update-btn{background:#188038;color:#fff;display:none}
+#status{font-size:12px;line-height:1.5;margin-top:8px;white-space:pre-wrap;color:#188038;font-weight:700}
+.update-box{background:#f8f9fa;border:1px solid #e8eaed;border-radius:8px;padding:10px;margin:10px 0;font-size:12px;line-height:1.45}
+.update-box.has-update{background:#fef7e0;border-color:#fbbc04;color:#b06000}
+details{margin-top:8px;font-size:12px;color:#5f6368}
+details summary{cursor:pointer;font-weight:700;color:#202124}
+.input-group{margin-top:6px}
+.input-group label{padding:3px 0;font-size:11.5px;display:block;font-weight:700}
+.input-group input{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #dadce0;border-radius:6px;font-size:12px}
+kbd{background:#f0f1f3;border:1px solid #ddd;border-radius:4px;padding:2px 5px}
+</style>
+</head>
+<body>
+<div class="header-row">
+  <h1>iHAVECPU คัดลอกสินค้า + รูป</h1>
+  <span id="version-badge" class="ver-badge">v2.4.0</span>
+</div>
+
+<div id="update-box" class="update-box">
+  <div id="update-text">กำลังตรวจสอบเวอร์ชันล่าสุด...</div>
+  <button id="reload-now" class="update-btn">อัปเดตและรีโหลดส่วนขยายทันที</button>
+  <button id="check-update" class="secondary" style="margin-top:6px;padding:7px;font-size:12px">เช็กอัปเดตเวอร์ชันใหม่</button>
+</div>
+
+<p>หน้าแชร์สเป็ค DIY เลือกคำนวณใน AdMeta เพื่อสร้างข้อความสำเร็จรูปแล้วใส่ในช่องแชต Zaapi หรือส่งเฉพาะลิงก์กับราคาได้ ทั้งสองแบบไม่ส่งอัตโนมัติ ปุ่มลอยลากย้าย ย่อ หรือซ่อนได้</p>
+<label><input type="radio" name="mode" value="button"> <span><b>ปุ่มบนหน้าเว็บ</b><br>แสดงปุ่มลอยบนหน้าสินค้า</span></label>
+<label><input type="radio" name="mode" value="shortcut"> <span><b>คีย์ลัดอย่างเดียว</b><br>ซ่อนปุ่มลอย ใช้คีย์ลัดที่ตั้งค่าไว้ใน Chrome</span></label>
+<label><input type="radio" name="mode" value="both"> <span><b>ใช้ทั้งปุ่มและคีย์ลัด</b><br>แนะนำสำหรับเริ่มต้น</span></label>
+<button id="save">บันทึกการตั้งค่า</button>
+<button id="shortcuts" class="secondary">ตั้งค่าคีย์ลัด</button>
+<div id="status" role="status"></div>
+
+<details>
+  <summary>ตั้งค่าเชื่อมต่อ GitHub อัปเดตอัตโนมัติ</summary>
+  <div class="input-group">
+    <label>ชื่อบัญชี GitHub (Owner)</label>
+    <input id="gh-owner" type="text" placeholder="เช่น my-github-user">
+  </div>
+  <div class="input-group">
+    <label>ชื่อโปรเจกต์ (Repository)</label>
+    <input id="gh-repo" type="text" placeholder="เช่น ihavecpu-copy-product">
+  </div>
+  <button id="save-gh" class="secondary" style="margin-top:8px;padding:7px;font-size:12px">บันทึกค่า GitHub</button>
+</details>
+
+<p>หากเพิ่งสร้างสเป็ค DIY ให้รอหน้าแชร์พร้อมแล้วกดคำนวณได้ทันที ระบบจะอ่านลิงก์จากหน้าปัจจุบันและไม่รีเฟรชหน้า DIY สำหรับเซ็ตโปรให้กดปุ่มบนหน้าสินค้าเพื่อเปิดเซ็ตใน AdMeta แล้วเลือกชิ้นส่วนที่ต้องการอัปเกรดและคำนวณราคาเอง ระบบจะไม่คัดลอกหรือวางข้อความใน Zaapi</p>
+<p>หากยังไม่มีแท็บ AdMeta ระบบจะเปิดหน้าและค้นหาเซ็ตให้ในครั้งเดียว หาก AdMeta แสดงหน้าเข้าสู่ระบบ ให้เข้าสู่ระบบก่อนแล้วเริ่มคำสั่งใหม่ ส่วน Zaapi ต้องเข้าสู่ระบบและเปิดห้องแชตที่ต้องการก่อนใช้งาน</p>
+<p>สำหรับสินค้า iHAVECPU ให้เปิดห้องแชต Zaapi ที่ต้องการ แล้วกดปุ่มบนหน้าเว็บหรือใช้คีย์ลัด Ctrl + Shift + U ระบบจะใส่ข้อความและแนบรูปในช่องแชตโดยไม่กดส่งเอง</p>
+<p>เมนูลอยจะปรับปุ่มให้ตรงกับหน้า DIY หรือหน้าสินค้าให้อัตโนมัติเมื่อเปลี่ยนหน้า</p>
+<script src="popup.js"></script>
+</body>
+</html>
