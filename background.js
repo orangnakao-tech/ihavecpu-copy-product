@@ -371,6 +371,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "PREPARE_ADMETA_COPY_ONLY") {
+    if (!/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(sender.url || "")) {
+      sendResponse({ error: "คำขอคำนวณสเป็ค DIY มาจากหน้าที่ไม่ได้รับอนุญาต" });
+      return;
+    }
+    runWithAutoResetRetry(sender.tab?.id, () => prepareAdmetaCopyOnly(sender.tab?.id))
+      .then((result) => {
+        sendResponse(result);
+      })
+      .catch((error) => {
+        sendResponse({ error: error.message || "คำนวณใน AdMeta ไม่สำเร็จ" });
+        showTabStatus(sender.tab?.id, error.message || "คำนวณใน AdMeta ไม่สำเร็จ", true);
+      });
+    return true;
+  }
+
   if (message?.type === "PREPARE_ADMETA_ZAAPI") {
     if (!/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(sender.url || "")) {
       sendResponse({ error: "คำขอคำนวณสเป็ค DIY มาจากหน้าที่ไม่ได้รับอนุญาต" });
@@ -788,6 +804,86 @@ async function prepareAdmetaZaapi(sourceTabId) {
   }
 }
 
+async function prepareAdmetaCopyOnly(sourceTabId) {
+  const { tab: sourceTab, shareKey: sourceShareKey } = await getReadyDIYTab(sourceTabId);
+  const productUrl = new URL(sourceTab.url);
+  productUrl.hash = "";
+  const productShareKey = getDIYShareKey(productUrl.href);
+  if (!productShareKey || productShareKey !== sourceShareKey) {
+    throw new Error("ไม่พบลิงก์แชร์สเป็ค DIY ในแท็บปัจจุบัน กรุณารอให้หน้าสเป็คพร้อมแล้วลองอีกครั้ง");
+  }
+
+  const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
+  let readyAdmetaTab = admetaTabs
+    .filter((tab) => /^https:\/\/admeta\.me\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(tab.url || ""))
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+
+  if (!readyAdmetaTab?.id) {
+    const loginTab = admetaTabs.find((tab) =>
+      /\/(?:login|signin|sign-in|auth)(?:\/|$)/i.test(new URL(tab.url || "https://admeta.me/").pathname)
+    );
+    if (loginTab?.id) {
+      await chrome.tabs.update(loginTab.id, { active: true });
+      if (loginTab.windowId) {
+        await chrome.windows.update(loginTab.windowId, { focused: true }).catch(() => {});
+      }
+      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณสเป็คอีกครั้ง");
+    }
+    readyAdmetaTab = await chrome.tabs.create({
+      url: "https://admeta.me/admin/spec-builder-v2",
+      active: true
+    });
+  }
+
+  await chrome.tabs.update(readyAdmetaTab.id, { active: true });
+  if (readyAdmetaTab.windowId) {
+    await chrome.windows.update(readyAdmetaTab.windowId, { focused: true }).catch(() => {});
+  }
+  if (
+    readyAdmetaTab.url &&
+    /^https:\/\/admeta\.me\/admin\/spec-builder-v2\/[^/]+/i.test(readyAdmetaTab.url)
+  ) {
+    await navigateTabAndWait(readyAdmetaTab.id, "https://admeta.me/admin/spec-builder-v2", RELOAD_TIMEOUT_MS);
+    await delay(500);
+  }
+
+  let calculated;
+  try {
+    calculated = await sendAdmetaMessage(readyAdmetaTab.id, {
+      type: "CALCULATE_ADMETA_DIY_MESSAGE",
+      diyUrl: productUrl.href
+    });
+  } catch (error) {
+    const errMsg = /กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")
+      ? error.message
+      : `ติดต่อหน้า AdMeta ไม่สำเร็จ กรุณาเข้าสู่ระบบและเปิดหน้า Spec Builder V2 แล้วลองใหม่ (${error.message})`;
+    await showTabStatus(readyAdmetaTab.id, errMsg, true);
+    throw new Error(errMsg);
+  }
+
+  if (!calculated?.ok || typeof calculated.text !== "string" || !calculated.text.trim()) {
+    const errMsg = calculated?.error || "AdMeta ไม่ได้สร้างข้อความสำหรับส่งลูกค้า";
+    await showTabStatus(readyAdmetaTab.id, errMsg, true);
+    throw new Error(errMsg);
+  }
+
+  if (calculated.needsUrlReset) {
+    chrome.tabs.update(readyAdmetaTab.id, { url: "https://admeta.me/admin/spec-builder-v2" }).catch(() => {});
+  }
+
+  await chrome.tabs.update(sourceTab.id, { active: true }).catch(() => {});
+  if (sourceTab.windowId) {
+    await chrome.windows.update(sourceTab.windowId, { focused: true }).catch(() => {});
+  }
+
+  return {
+    ok: true,
+    text: calculated.text,
+    specNumber: calculated.specNumber || "",
+    resetError: calculated.resetError || ""
+  };
+}
+
 async function openPromoSetForUpgrade(searchTerm) {
   if (typeof searchTerm !== "string" || !searchTerm.trim() || searchTerm.length > 160) {
     throw new Error("ไม่พบรหัสเซ็ตโปรสำหรับค้นหาใน AdMeta");
@@ -1017,7 +1113,8 @@ async function getUpdateConfig() {
         githubOwner: rawOwner === "YOUR_GITHUB_USERNAME" ? DEFAULT_GITHUB_OWNER : rawOwner,
         githubRepo: customUpdateConfig?.githubRepo || fileConfig.githubRepo || DEFAULT_GITHUB_REPO,
         branch: customUpdateConfig?.branch || fileConfig.branch || "main",
-        checkIntervalMinutes: Number(fileConfig.checkIntervalMinutes) || 2
+        checkIntervalMinutes: Number(fileConfig.checkIntervalMinutes) || 2,
+        releaseNotes: Array.isArray(fileConfig.releaseNotes) ? fileConfig.releaseNotes : []
       };
     }
   } catch (err) {
@@ -1027,7 +1124,8 @@ async function getUpdateConfig() {
     githubOwner: DEFAULT_GITHUB_OWNER,
     githubRepo: DEFAULT_GITHUB_REPO,
     branch: "main",
-    checkIntervalMinutes: 2
+    checkIntervalMinutes: 2,
+    releaseNotes: []
   };
 }
 
@@ -1173,7 +1271,8 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = false } = {}
     checkedAt: Date.now(),
     githubOwner: config.githubOwner,
     githubRepo: config.githubRepo,
-    branch: config.branch
+    branch: config.branch,
+    releaseNotes: config.releaseNotes || []
   };
   await chrome.storage.local.set({ updateStatus: statusObj });
   await broadcastUpdateNotice(statusObj);

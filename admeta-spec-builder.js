@@ -605,6 +605,15 @@
       }
     } catch {}
 
+    const defaultNotes = [
+      "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบนสำหรับคัดลอกไปใช้แพลตฟอร์มอื่น",
+      "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ",
+      "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท"
+    ];
+    const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
+      ? status.releaseNotes
+      : defaultNotes;
+
     let box = document.getElementById("ihavecpu-update-notice");
     if (!box) {
       box = document.createElement("div");
@@ -614,7 +623,7 @@
         right: "18px",
         top: "18px",
         zIndex: "2147483647",
-        width: "340px",
+        width: "350px",
         maxWidth: "calc(100vw - 28px)",
         background: "#fff",
         border: "2px solid #d71920",
@@ -626,11 +635,12 @@
       });
       box.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-          <strong style="color:#d71920;font-size:14px;">🔔 มีอัปเดตส่วนขยาย iHAVECPU ใหม่!</strong>
+          <strong style="color:#202124;font-size:14px;">ver.<span class="ihc-update-ver"></span> อัพเดทใหม่<span style="color:#d71920;font-weight:900;margin-left:2px;">!!!</span></strong>
           <button type="button" data-update-close="1" aria-label="ปิดข้อความ" title="ปิดข้อความ" style="border:0;background:#f2f4f7;color:#333;width:26px;height:26px;border-radius:6px;cursor:pointer;font:700 16px/1 Arial,sans-serif;display:flex;align-items:center;justify-content:center;">×</button>
         </div>
-        <div class="ihc-update-msg" style="margin-bottom:10px;color:#333;">
-          ตรวจพบอัปเดตเวอร์ชันใหม่ (v<span class="ihc-update-ver"></span>) กรุณาไปกดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยายของ Chrome
+        <div class="ihc-update-notes" style="margin-bottom:8px;padding:6px 8px;background:#f8f9fa;border-radius:7px;font-size:12px;color:#333;"></div>
+        <div class="ihc-update-msg" style="margin-bottom:10px;color:#555;font-size:12px;">
+          กรุณาไปกดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยายของ Chrome เพื่อใช้งานเวอร์ชันใหม่
         </div>
         <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;background:#d71920;color:#fff;text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;">
           ไปที่หน้าส่วนขยาย (chrome://extensions/)
@@ -655,7 +665,18 @@
     }
     box.dataset.version = targetVersion;
     const verSpan = box.querySelector(".ihc-update-ver");
-    if (verSpan) verSpan.textContent = targetVersion;
+    if (verSpan) verSpan.textContent = String(targetVersion).replace(/^v/i, "");
+    const notesContainer = box.querySelector(".ihc-update-notes");
+    if (notesContainer) {
+      notesContainer.innerHTML = "";
+      for (const note of notesList) {
+        const line = String(note || "").trim();
+        if (!line) continue;
+        const itemEl = document.createElement("div");
+        itemEl.textContent = line.startsWith("+") ? line : `+${line}`;
+        notesContainer.appendChild(itemEl);
+      }
+    }
   }
 
   chrome.storage.local.get({ updateStatus: null }).then(({ updateStatus }) => {

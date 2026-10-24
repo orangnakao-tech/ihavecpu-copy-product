@@ -3,10 +3,44 @@ const verBadgeEl = document.getElementById("version-badge");
 const updateBoxEl = document.getElementById("update-box");
 const updateTextEl = document.getElementById("update-text");
 const reloadBtnEl = document.getElementById("reload-now");
+const releaseNotesVerEl = document.getElementById("release-notes-ver");
+const releaseNotesItemsEl = document.getElementById("release-notes-items");
+
+const DEFAULT_RELEASE_NOTES = [
+  "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบนสำหรับคัดลอกไปใช้แพลตฟอร์มอื่น",
+  "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ",
+  "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท",
+  "+อัพเดทเปลี่ยนแจ้งเตือนในหน้า Zaapi เป็นจุดวงกลมสีเขียวไม่บังแชต"
+];
+
+function renderReleaseNotes(versionStr, notes) {
+  if (releaseNotesVerEl) {
+    releaseNotesVerEl.textContent = String(versionStr || chrome.runtime.getManifest().version).replace(/^v/i, "");
+  }
+  if (!releaseNotesItemsEl) return;
+  const list = Array.isArray(notes) && notes.length > 0 ? notes : DEFAULT_RELEASE_NOTES;
+  releaseNotesItemsEl.innerHTML = "";
+  for (const item of list) {
+    const line = String(item || "").trim();
+    if (!line) continue;
+    const div = document.createElement("div");
+    div.textContent = line.startsWith("+") ? line : `+${line}`;
+    releaseNotesItemsEl.appendChild(div);
+  }
+}
 
 function renderUpdateStatus(status) {
   if (!status) return;
-  verBadgeEl.textContent = `v${status.loadedVersion || chrome.runtime.getManifest().version}`;
+  const currentVer = status.loadedVersion || chrome.runtime.getManifest().version;
+  verBadgeEl.textContent = `v${currentVer}`;
+  const displayVer = status.remoteHasNewer
+    ? status.remoteVersion
+    : (status.diskNeedsReload ? status.diskVersion : currentVer);
+  if (Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0) {
+    renderReleaseNotes(displayVer, status.releaseNotes);
+  } else if (releaseNotesVerEl) {
+    releaseNotesVerEl.textContent = String(displayVer || currentVer).replace(/^v/i, "");
+  }
 
   if (status.diskNeedsReload) {
     updateBoxEl.classList.add("has-update");
@@ -24,11 +58,23 @@ function renderUpdateStatus(status) {
 
   updateBoxEl.classList.remove("has-update");
   reloadBtnEl.style.display = "none";
-  updateTextEl.textContent = `ส่วนขยายเป็นเวอร์ชันล่าสุดแล้ว (v${status.loadedVersion})`;
+  updateTextEl.textContent = `ส่วนขยายเป็นเวอร์ชันล่าสุดแล้ว (v${currentVer})`;
 }
 
 async function load() {
-  verBadgeEl.textContent = `v${chrome.runtime.getManifest().version}`;
+  const manifestVer = chrome.runtime.getManifest().version;
+  verBadgeEl.textContent = `v${manifestVer}`;
+  renderReleaseNotes(manifestVer, DEFAULT_RELEASE_NOTES);
+
+  try {
+    const cfgRes = await fetch(chrome.runtime.getURL("update-config.json"), { cache: "no-store" });
+    if (cfgRes.ok) {
+      const cfg = await cfgRes.json();
+      if (Array.isArray(cfg?.releaseNotes) && cfg.releaseNotes.length > 0) {
+        renderReleaseNotes(manifestVer, cfg.releaseNotes);
+      }
+    }
+  } catch {}
   const { mode = "both" } = await chrome.storage.sync.get({ mode: "both" });
   const radio = document.querySelector(`input[name="mode"][value="${mode}"]`);
   if (radio) radio.checked = true;

@@ -443,10 +443,37 @@
     }, 300);
   }
 
+  let currentPlatformMode = "zaapi";
+
+  async function calculateAdmetaAndCopyOnly() {
+    let result;
+    try {
+      result = await chrome.runtime.sendMessage({
+        type: "PREPARE_ADMETA_COPY_ONLY"
+      });
+    } catch (error) {
+      if (/extension context invalidated/i.test(error.message || "")) {
+        throw new Error("ส่วนขยายเพิ่งอัปเดต กรุณาลองคำนวณอีกครั้ง");
+      }
+      throw error;
+    }
+    if (!result?.ok || !result.text) {
+      throw new Error(result?.error || "คำนวณสเป็คใน AdMeta ไม่สำเร็จ");
+    }
+    await copyText(result.text);
+    const specNumber = result.specNumber ? ` (${result.specNumber})` : "";
+    showToast(`คำนวณสเป็คใน AdMeta${specNumber} และคัดลอกข้อความแล้ว (โหมดแพทฟอม)`);
+  }
+
   async function doCopy(kind = "both", isAutoRetry = false) {
     try {
       if (kind === "diy-admeta-zaapi") {
         await calculateAdmetaAndSendToZaapi();
+        return;
+      }
+
+      if (kind === "platform-diy-admeta") {
+        await calculateAdmetaAndCopyOnly();
         return;
       }
 
@@ -456,12 +483,17 @@
         return;
       }
 
-      if (kind === "diy-zaapi") {
+      if (kind === "diy-zaapi" || kind === "platform-diy-text") {
         const price = await waitForDIYPrice(isAutoRetry ? 8000 : 4000);
         if (!price || !/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(location.href)) {
           throw new Error("หาไม่พบยอดรวมของสเป็ค DIY กรุณาเปิดหน้าสเป็คที่แชร์แล้วลองอีกครั้ง");
         }
-        await sendDIYTextToZaapi(formatDIYText(price));
+        if (kind === "platform-diy-text") {
+          await copyText(formatDIYText(price));
+          showToast("คัดลอกลิงก์และราคาสเป็ค DIY แล้ว (โหมดแพทฟอม)");
+        } else {
+          await sendDIYTextToZaapi(formatDIYText(price));
+        }
         return;
       }
 
@@ -473,6 +505,9 @@
       if (kind === "text") {
         await copyText(formatProductText(product));
         showToast("คัดลอกข้อความสินค้าแล้ว");
+      } else if (kind === "platform-product") {
+        await copyText(formatProductText(product));
+        showToast("คัดลอกข้อความสินค้าสำหรับแพทฟอมแล้ว (ไม่ส่งเข้า Zaapi)");
       } else if (kind === "zaapi") {
         await fillZaapi(product);
       } else {
@@ -505,6 +540,15 @@
       }
     } catch {}
 
+    const defaultNotes = [
+      "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบนสำหรับคัดลอกไปใช้แพลตฟอร์มอื่น",
+      "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ",
+      "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท"
+    ];
+    const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
+      ? status.releaseNotes
+      : defaultNotes;
+
     let box = document.getElementById("ihavecpu-update-notice");
     if (!box) {
       box = document.createElement("div");
@@ -514,7 +558,7 @@
         right: "18px",
         top: "18px",
         zIndex: "2147483647",
-        width: "340px",
+        width: "350px",
         maxWidth: "calc(100vw - 28px)",
         background: "#fff",
         border: "2px solid #d71920",
@@ -526,11 +570,12 @@
       });
       box.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-          <strong style="color:#d71920;font-size:14px;">🔔 มีอัปเดตส่วนขยาย iHAVECPU ใหม่!</strong>
+          <strong style="color:#202124;font-size:14px;">ver.<span class="ihc-update-ver"></span> อัพเดทใหม่<span style="color:#d71920;font-weight:900;margin-left:2px;">!!!</span></strong>
           <button type="button" data-update-close="1" aria-label="ปิดข้อความ" title="ปิดข้อความ" style="border:0;background:#f2f4f7;color:#333;width:26px;height:26px;border-radius:6px;cursor:pointer;font:700 16px/1 Arial,sans-serif;display:flex;align-items:center;justify-content:center;">×</button>
         </div>
-        <div class="ihc-update-msg" style="margin-bottom:10px;color:#333;">
-          ตรวจพบอัปเดตเวอร์ชันใหม่ (v<span class="ihc-update-ver"></span>) กรุณาไปกดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยายของ Chrome
+        <div class="ihc-update-notes" style="margin-bottom:8px;padding:6px 8px;background:#f8f9fa;border-radius:7px;font-size:12px;color:#333;"></div>
+        <div class="ihc-update-msg" style="margin-bottom:10px;color:#555;font-size:12px;">
+          กรุณาไปกดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยายของ Chrome เพื่อใช้งานเวอร์ชันใหม่
         </div>
         <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;background:#d71920;color:#fff;text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;">
           ไปที่หน้าส่วนขยาย (chrome://extensions/)
@@ -555,7 +600,53 @@
     }
     box.dataset.version = targetVersion;
     const verSpan = box.querySelector(".ihc-update-ver");
-    if (verSpan) verSpan.textContent = targetVersion;
+    if (verSpan) verSpan.textContent = String(targetVersion).replace(/^v/i, "");
+    const notesContainer = box.querySelector(".ihc-update-notes");
+    if (notesContainer) {
+      notesContainer.innerHTML = "";
+      for (const note of notesList) {
+        const line = String(note || "").trim();
+        if (!line) continue;
+        const itemEl = document.createElement("div");
+        itemEl.textContent = line.startsWith("+") ? line : `+${line}`;
+        notesContainer.appendChild(itemEl);
+      }
+    }
+  }
+
+  function buildActionsHtml(isDIYShare, hasProduct, isPromoSet, platformMode) {
+    const isPlatform = platformMode === "platform";
+    if (isDIYShare) {
+      return isPlatform
+        ? '<button data-action="platform-diy-admeta">คำนวณใน AdMeta แล้วคัดลอกข้อความ (แพทฟอม)</button><button class="secondary" data-action="platform-diy-text">คัดลอกเฉพาะลิงก์ + ราคา (แพทฟอม)</button>'
+        : '<button data-action="diy-admeta-zaapi">คำนวณใน AdMeta แล้วใส่ข้อความใน Zaapi</button><button class="secondary" data-action="diy-zaapi">ใส่เฉพาะลิงก์ + ราคาใน Zaapi (ไม่ส่ง)</button>';
+    }
+    if (!hasProduct) return "";
+    const promoBtn = isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : "";
+    return isPlatform
+      ? `${promoBtn}<button data-action="platform-product">คัดลอกข้อความสินค้า (โหมดแพทฟอม)</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`
+      : `${promoBtn}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`;
+  }
+
+  function applyPlatformThemeToWrap(wrap, launcher, platformMode) {
+    const isPlatform = platformMode === "platform";
+    if (wrap) {
+      wrap.dataset.platformMode = isPlatform ? "platform" : "zaapi";
+      const titleEl = wrap.querySelector(".ihc-panel-title");
+      if (titleEl) {
+        titleEl.textContent = isPlatform ? "iHAVECPU • โหมดแพทฟอม" : "iHAVECPU • เครื่องมือสินค้า";
+      }
+      const switchBtn = wrap.querySelector('button[data-panel-action="switch-platform"]');
+      if (switchBtn) {
+        switchBtn.title = isPlatform
+          ? "สลับกลับเป็น โหมด Zaapi (สีแดง)"
+          : "สลับเป็น โหมดแพทฟอม (ธีมสีส้ม — คัดลอกอย่างเดียว)";
+      }
+    }
+    if (launcher) {
+      launcher.dataset.platformMode = isPlatform ? "platform" : "zaapi";
+      launcher.textContent = isPlatform ? "เปิด iHAVECPU (แพทฟอม)" : "เปิด iHAVECPU";
+    }
   }
 
   function addButton() {
@@ -577,13 +668,10 @@
     );
     const productTitle = extracted.title;
     const isPromoSet = /(?:^|[\s_(\[])(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z0-9]*-[A-Z0-9-]+/i.test(productTitle);
-    const actions = isDIYShare
-      ? '<button data-action="diy-admeta-zaapi">คำนวณใน AdMeta แล้วใส่ข้อความใน Zaapi</button><button class="secondary" data-action="diy-zaapi">ใส่เฉพาะลิงก์ + ราคาใน Zaapi (ไม่ส่ง)</button>'
-      : hasProduct
-        ? `${isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : ""}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`
-        : "";
+    const actions = buildActionsHtml(isDIYShare, hasProduct, isPromoSet, currentPlatformMode);
 
     if (existingWrap) {
+      applyPlatformThemeToWrap(existingWrap, existingLauncher, currentPlatformMode);
       const body = existingWrap.querySelector(".ihc-panel-body");
       if (body && body.innerHTML !== actions) body.innerHTML = actions;
       return;
@@ -596,12 +684,15 @@
         #${BUTTON_ID} { position:fixed; right:18px; bottom:18px; z-index:2147483646;
           width:max-content; max-width:calc(100vw - 24px); border-radius:13px;
           background:#fff; box-shadow:0 3px 18px rgba(0,0,0,.22); border:1px solid #e3e3e3;
-          font:13px Arial,Tahoma,sans-serif; }
+          font:13px Arial,Tahoma,sans-serif; overflow:hidden; transition:border-color .18s ease; }
         #${BUTTON_ID} .ihc-panel-header { display:flex; align-items:center; justify-content:space-between;
           gap:10px; padding:8px 10px; border-bottom:1px solid #eee; cursor:move; user-select:none;
-          font-weight:700; color:#333; }
-        #${BUTTON_ID} .ihc-panel-controls { display:flex; gap:5px; }
-        #${BUTTON_ID} .ihc-panel-controls button { padding:3px 8px; color:#333; background:#f0f1f3; }
+          font-weight:700; color:#333; transition:background .18s ease, color .18s ease; }
+        #${BUTTON_ID} .ihc-panel-controls { display:flex; align-items:center; gap:5px; }
+        #${BUTTON_ID} .ihc-panel-controls button { padding:4px 8px; color:#333; background:#f0f1f3;
+          display:inline-flex; align-items:center; justify-content:center; min-height:24px; }
+        #${BUTTON_ID} .ihc-panel-controls button[data-panel-action="switch-platform"] {
+          padding:4px 7px; color:#c2410c; background:#ffedd5; border:1px solid #fed7aa; }
         #${BUTTON_ID} .ihc-panel-search { display:flex; gap:6px; padding:10px; }
         #${BUTTON_ID} .ihc-admeta-search-input { flex:1; min-width:210px; padding:8px 10px;
           border:1px solid #d0d5dd; border-radius:7px; font:13px Arial,Tahoma,sans-serif; color:#222; outline:none; }
@@ -611,18 +702,28 @@
         #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-search,
         #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-body { display:none; }
         #${BUTTON_ID} button { border:0; border-radius:7px; padding:9px 12px; cursor:pointer;
-          font-weight:700; color:#fff; background:#d71920; white-space:nowrap; }
+          font-weight:700; color:#fff; background:#d71920; white-space:nowrap; transition:background .18s ease; }
         #${BUTTON_ID} button.secondary { color:#333; background:#f0f1f3; }
         #${BUTTON_ID} button:hover { filter:brightness(.95); }
+        #${BUTTON_ID}[data-platform-mode="platform"] { border-color:#fdba74; box-shadow:0 4px 20px rgba(234,88,12,.22); }
+        #${BUTTON_ID}[data-platform-mode="platform"] .ihc-panel-header { background:#fff7ed; border-bottom-color:#fed7aa; color:#c2410c; }
+        #${BUTTON_ID}[data-platform-mode="platform"] button { background:#ea580c; color:#fff; }
+        #${BUTTON_ID}[data-platform-mode="platform"] button.secondary { background:#ffedd5; color:#9a3412; }
+        #${BUTTON_ID}[data-platform-mode="platform"] .ihc-panel-controls button { background:#ffedd5; color:#9a3412; }
+        #${BUTTON_ID}[data-platform-mode="platform"] .ihc-panel-controls button[data-panel-action="switch-platform"] {
+          background:#ea580c; color:#fff; border-color:#ea580c; }
+        #${BUTTON_ID}[data-platform-mode="platform"] .ihc-admeta-search-input:focus {
+          border-color:#ea580c; box-shadow:0 0 0 2px rgba(234,88,12,.18); }
         #${BUTTON_ID}-launcher { position:fixed; right:18px; bottom:18px; z-index:2147483646;
           border:0; border-radius:20px; padding:10px 14px; background:#d71920; color:#fff;
           box-shadow:0 3px 18px rgba(0,0,0,.22); font:700 13px Arial,Tahoma,sans-serif; cursor:pointer; }
+        #${BUTTON_ID}-launcher[data-platform-mode="platform"] { background:#ea580c; }
       `;
       document.documentElement.appendChild(style);
     }
     const wrap = document.createElement("div");
     wrap.id = BUTTON_ID;
-    wrap.innerHTML = `<div class="ihc-panel-header"><span>iHAVECPU • เครื่องมือสินค้า</span><span class="ihc-panel-controls"><button type="button" data-panel-action="collapse" aria-label="ย่อหน้าต่าง">−</button><button type="button" data-panel-action="hide" aria-label="ซ่อนหน้าต่าง">×</button></span></div><div class="ihc-panel-search"><input type="text" class="ihc-admeta-search-input" placeholder="ค้นหางบ/สเป็คใน AdMeta (เช่น งบ 20000 รวมจอ)" aria-label="ค้นหางบหรือสเป็คใน AdMeta" /><button type="button" data-panel-search="submit">ค้นหา</button></div><div class="ihc-panel-body">${actions}</div>`;
+    wrap.innerHTML = `<div class="ihc-panel-header"><span class="ihc-panel-title">iHAVECPU • เครื่องมือสินค้า</span><span class="ihc-panel-controls"><button type="button" data-panel-action="switch-platform" aria-label="สลับโหมด Zaapi / แพทฟอม" title="สลับเป็น โหมดแพทฟอม (ธีมสีส้ม — คัดลอกอย่างเดียว)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="display:block;pointer-events:none;"><path d="M21 12a9 9 0 0 0-15.36-6.36L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.36 6.36L21 16"/><path d="M16 16h5v5"/></svg></button><button type="button" data-panel-action="collapse" aria-label="ย่อหน้าต่าง">−</button><button type="button" data-panel-action="hide" aria-label="ซ่อนหน้าต่าง">×</button></span></div><div class="ihc-panel-search"><input type="text" class="ihc-admeta-search-input" placeholder="ค้นหางบ/สเป็คใน AdMeta (เช่น งบ 20000 รวมจอ)" aria-label="ค้นหางบหรือสเป็คใน AdMeta" /><button type="button" data-panel-search="submit">ค้นหา</button></div><div class="ihc-panel-body">${actions}</div>`;
     const searchInputEl = wrap.querySelector(".ihc-admeta-search-input");
     if (searchInputEl) {
       searchInputEl.addEventListener("keydown", async (event) => {
@@ -649,6 +750,18 @@
       }
       const panelAction = event.target.closest("button[data-panel-action]");
       if (panelAction) {
+        if (panelAction.dataset.panelAction === "switch-platform") {
+          currentPlatformMode = currentPlatformMode === "platform" ? "zaapi" : "platform";
+          lastPageKey = "";
+          addButton();
+          chrome.storage.local.set({ platformMode: currentPlatformMode }).catch(() => {});
+          showToast(
+            currentPlatformMode === "platform"
+              ? "เปลี่ยนเป็น โหมดแพทฟอม (ธีมสีส้ม — คัดลอกอย่างเดียว)"
+              : "เปลี่ยนเป็น โหมด Zaapi (ธีมสีแดง)"
+          );
+          return;
+        }
         if (panelAction.dataset.panelAction === "collapse") {
           const collapsed = wrap.dataset.collapsed !== "true";
           wrap.dataset.collapsed = String(collapsed);
@@ -684,6 +797,7 @@
       );
     });
     document.body.appendChild(launcher);
+    applyPlatformThemeToWrap(wrap, launcher, currentPlatformMode);
 
     let drag = null;
     const header = wrap.querySelector(".ihc-panel-header");
@@ -726,8 +840,12 @@
 
     Promise.all([
       chrome.storage.sync.get({ mode: "both" }),
-      chrome.storage.local.get({ panelPosition: null, panelHidden: false, panelCollapsed: false })
+      chrome.storage.local.get({ panelPosition: null, panelHidden: false, panelCollapsed: false, platformMode: "zaapi" })
     ]).then(([{ mode }, settings]) => {
+      currentPlatformMode = settings.platformMode === "platform" ? "platform" : "zaapi";
+      applyPlatformThemeToWrap(wrap, launcher, currentPlatformMode);
+      lastPageKey = "";
+      addButton();
       const enabled = mode !== "shortcut";
       wrap.dataset.modeHidden = String(!enabled);
       if (settings.panelPosition && Number.isFinite(settings.panelPosition.left) &&
@@ -750,7 +868,7 @@
   function syncPageControls() {
     const isIhc = /^https:\/\/(www\.)?ihavecpu\.com\//i.test(location.href);
     const snap = isIhc ? extract() : { title: "", price: "", sku: "" };
-    const pageKey = `${location.href}\n${document.title}\n${document.querySelector("main h1, h1")?.textContent || ""}\n${snap.title}\n${snap.price}\n${snap.sku}`;
+    const pageKey = `${location.href}\n${document.title}\n${document.querySelector("main h1, h1")?.textContent || ""}\n${snap.title}\n${snap.price}\n${snap.sku}\n${currentPlatformMode}`;
     if (pageKey === lastPageKey) return;
     lastPageKey = pageKey;
     addButton();
@@ -770,6 +888,11 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.updateStatus) {
       showUpdateNotice(changes.updateStatus.newValue);
+    }
+    if (area === "local" && changes.platformMode) {
+      currentPlatformMode = changes.platformMode.newValue === "platform" ? "platform" : "zaapi";
+      lastPageKey = "";
+      addButton();
     }
     if (area !== "sync" || !changes.mode) return;
     const wrap = document.getElementById(BUTTON_ID);
