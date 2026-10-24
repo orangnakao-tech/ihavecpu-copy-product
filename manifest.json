@@ -60,7 +60,7 @@
     },
     {
       "matches": [
-        "https://admeta.me/admin/spec-builder-v2*"
+        "https://admeta.me/admin/*"
       ],
       "js": [
         "admeta-spec-builder.js"

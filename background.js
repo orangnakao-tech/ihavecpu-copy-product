@@ -7,7 +7,7 @@ const RELOAD_TIMEOUT_MS = 20000;
 const MATCHING_URL_PATTERNS = [
   "https://ihavecpu.com/*",
   "https://www.ihavecpu.com/*",
-  "https://admeta.me/admin/spec-builder-v2*",
+  "https://admeta.me/admin/*",
   "https://app.zaapi.com/*"
 ];
 
@@ -57,25 +57,119 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   );
 });
 
-async function fetchProductImage(url) {
-  const imageUrl = new URL(url);
-  if (imageUrl.protocol !== "https:" || imageUrl.hostname !== IMAGE_HOST) {
-    throw new Error("โดเมนรูปภาพไม่ได้รับอนุญาต");
+function detectImageMimeType(bytes, headerType = "", pathname = "") {
+  if (bytes && bytes.length >= 12) {
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+      return "image/jpeg";
+    }
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+      return "image/png";
+    }
+    if (
+      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    ) {
+      return "image/webp";
+    }
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
+      return "image/gif";
+    }
+    if (bytes[0] === 0x42 && bytes[1] === 0x4D) {
+      return "image/bmp";
+    }
+    if (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+      return "image/avif";
+    }
   }
 
-  const response = await fetch(imageUrl.href, { credentials: "omit" });
-  if (!response.ok) throw new Error(`ดาวน์โหลดรูปสินค้าไม่สำเร็จ (${response.status})`);
-
-  const blob = await response.blob();
-  if (!blob.type.startsWith("image/")) throw new Error("ไฟล์ที่พบไม่ใช่รูปภาพ");
-  if (blob.size > MAX_IMAGE_SIZE) throw new Error("รูปสินค้ามีขนาดใหญ่เกินไป");
-
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  if (bytes && bytes.length > 0) {
+    let firstNonSpace = 0;
+    while (firstNonSpace < Math.min(bytes.length, 64) && bytes[firstNonSpace] <= 0x20) {
+      firstNonSpace++;
+    }
+    if (bytes[firstNonSpace] === 0x3C) {
+      const headStr = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, 256));
+      if (/<svg[\s>]/i.test(headStr)) {
+        return "image/svg+xml";
+      }
+      return "";
+    }
   }
-  return `data:${blob.type};base64,${btoa(binary)}`;
+
+  const cleanHeader = String(headerType || "").split(";")[0].trim().toLowerCase();
+  if (cleanHeader === "image/jpg" || cleanHeader === "image/pjpeg") return "image/jpeg";
+  if (cleanHeader.startsWith("image/")) return cleanHeader;
+
+  const lowerPath = String(pathname || "").toLowerCase();
+  if (/\.(?:jpe?g|jfif)(?:$|\?)/i.test(lowerPath)) return "image/jpeg";
+  if (/\.png(?:$|\?)/i.test(lowerPath)) return "image/png";
+  if (/\.webp(?:$|\?)/i.test(lowerPath)) return "image/webp";
+  if (/\.gif(?:$|\?)/i.test(lowerPath)) return "image/gif";
+  if (/\.avif(?:$|\?)/i.test(lowerPath)) return "image/avif";
+  if (/\.bmp(?:$|\?)/i.test(lowerPath)) return "image/bmp";
+
+  if (
+    bytes &&
+    bytes.length > 64 &&
+    (cleanHeader === "application/octet-stream" || cleanHeader === "binary/octet-stream" || !cleanHeader)
+  ) {
+    return "image/jpeg";
+  }
+
+  return "";
+}
+
+function isAllowedImageHost(hostname) {
+  const h = String(hostname || "").toLowerCase();
+  return (
+    h === IMAGE_HOST ||
+    h === "ihavecpu.com" ||
+    h === "www.ihavecpu.com" ||
+    h.endsWith(".ihavecpu.com") ||
+    h.endsWith(".amazonaws.com")
+  );
+}
+
+async function fetchProductImage(urlOrUrls) {
+  const candidates = Array.isArray(urlOrUrls)
+    ? urlOrUrls.filter((u) => typeof u === "string" && u.trim())
+    : (typeof urlOrUrls === "string" && urlOrUrls.trim() ? [urlOrUrls.trim()] : []);
+  if (!candidates.length) {
+    throw new Error("ไม่พบรูปสินค้า");
+  }
+
+  let lastError = null;
+  for (const rawUrl of candidates) {
+    try {
+      const imageUrl = new URL(rawUrl);
+      if (imageUrl.protocol !== "https:" || !isAllowedImageHost(imageUrl.hostname)) {
+        throw new Error("โดเมนรูปภาพไม่ได้รับอนุญาต");
+      }
+
+      const response = await fetch(imageUrl.href, { credentials: "omit" });
+      if (!response.ok) throw new Error(`ดาวน์โหลดรูปสินค้าไม่สำเร็จ (${response.status})`);
+
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength > MAX_IMAGE_SIZE) throw new Error("รูปสินค้ามีขนาดใหญ่เกินไป");
+      if (buffer.byteLength < 16) throw new Error("ไฟล์รูปสินค้าว่างเปล่า");
+
+      const bytes = new Uint8Array(buffer);
+      const headerType = response.headers.get("content-type") || "";
+      const mimeType = detectImageMimeType(bytes, headerType, imageUrl.pathname);
+      if (!mimeType) {
+        throw new Error("ไฟล์ที่พบไม่ใช่รูปภาพ");
+      }
+
+      let binary = "";
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+      }
+      return `data:${mimeType};base64,${btoa(binary)}`;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error("ดึงรูปสินค้าไม่สำเร็จ");
 }
 
 function reloadTabAndWait(tabId, timeoutMs = RELOAD_TIMEOUT_MS) {
@@ -431,6 +525,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "OPEN_PLATFORM_CALCULATOR") {
+    if (!/^https:\/\/(www\.)?ihavecpu\.com\//i.test(sender.url || "")) {
+      sendResponse({ error: "คำขอเปิดหน้าคำนวณราคาแพลตฟอร์มมาจากหน้าที่ไม่ได้รับอนุญาต" });
+      return;
+    }
+    openAndAddPlatformCalculatorItem({
+      kind: message.kind,
+      title: message.title || "",
+      diyUrl: message.diyUrl || ""
+    })
+      .then((result) => {
+        sendResponse(result);
+      })
+      .catch((error) => {
+        sendResponse({ error: error.message || "เปิดหน้าคำนวณราคาแพลตฟอร์มใน AdMeta ไม่สำเร็จ" });
+        if (sender.tab?.id) {
+          showTabStatus(sender.tab.id, error.message || "เปิดหน้าคำนวณราคาแพลตฟอร์มใน AdMeta ไม่สำเร็จ", true);
+        }
+      });
+    return true;
+  }
+
   if (message?.type === "SEARCH_ADMETA_SPEC") {
     runWithAutoResetRetry(sender.tab?.id, () => searchSpecInAdmetaTab(message.searchTerm))
       .then((result) => {
@@ -646,13 +762,32 @@ async function prepareZaapiProduct(product) {
   if (typeof product.text !== "string" || !product.text.trim() || product.text.length > 10000) {
     throw new Error("ไม่พบข้อความสินค้า กรุณาเปิดหน้าสินค้าแล้วลองอีกครั้ง");
   }
-  if (typeof product.imageUrl !== "string") throw new Error("ไม่พบรูปสินค้า");
 
-  const imageDataUrl = await fetchProductImage(product.imageUrl);
+  const candidateUrls = [
+    ...(Array.isArray(product.imageUrls) ? product.imageUrls : []),
+    ...(typeof product.imageUrl === "string" && product.imageUrl ? [product.imageUrl] : [])
+  ].filter((v, idx, arr) => v && arr.indexOf(v) === idx);
+
+  let imageDataUrl = typeof product.imageDataUrl === "string" && product.imageDataUrl.startsWith("data:image/")
+    ? product.imageDataUrl
+    : "";
+
+  if (!imageDataUrl && candidateUrls.length > 0) {
+    try {
+      imageDataUrl = await fetchProductImage(candidateUrls);
+    } catch (imgErr) {
+      console.warn("Could not fetch product image from URLs, will fall back if needed:", imgErr);
+      if (!product.allowTextOnlyFallback) {
+        throw imgErr;
+      }
+    }
+  }
+
   await chrome.storage.local.set({
     lastZaapiProduct: {
       text: product.text,
-      imageUrl: product.imageUrl,
+      imageUrl: candidateUrls[0] || product.imageUrl || "",
+      imageUrls: candidateUrls,
       fileName: product.fileName || "ihavecpu-product.png"
     }
   });
@@ -665,6 +800,14 @@ async function prepareZaapiProduct(product) {
   }
   try {
     await verifyZaapiTab(zaapiTab);
+    if (!imageDataUrl) {
+      const textOnlyResult = await sendZaapiMessage(zaapiTab.id, {
+        type: "INSERT_ZAAPI_MESSAGE",
+        text: product.text
+      });
+      if (!textOnlyResult?.ok) throw new Error(textOnlyResult?.error || "ใส่ข้อความใน Zaapi ไม่สำเร็จ");
+      return { ...textOnlyResult, imageAttached: false };
+    }
     const result = await sendZaapiMessage(zaapiTab.id, {
       type: "PREPARE_ZAAPI_PRODUCT",
       text: product.text,
@@ -1013,12 +1156,104 @@ async function searchSpecInAdmetaTab(searchTerm) {
   return { ok: true, searchTerm: finalTerm, loadedFromHistory: false };
 }
 
+async function sendPlatformCalculatorMessage(tabId, message) {
+  let lastError;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const tab = await chrome.tabs.get(tabId);
+    const rawUrl = tab.pendingUrl || tab.url || "";
+    if (rawUrl) {
+      let url;
+      try {
+        url = new URL(rawUrl);
+      } catch {
+        url = null;
+      }
+      if (url && url.hostname !== "admeta.me") {
+        throw new Error("กรุณาเข้าสู่ระบบ AdMeta แล้วเปิดหน้าคำนวณราคาแพลตฟอร์มก่อนลองอีกครั้ง");
+      }
+      if (url && /\/(?:login|signin|sign-in|auth)(?:\/|$)/i.test(url.pathname)) {
+        throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองอีกครั้ง");
+      }
+    }
+    if (tab.status === "complete" && /^https:\/\/admeta\.me\/admin\/platform\/calculator/i.test(tab.url || "")) {
+      try {
+        return await chrome.tabs.sendMessage(tabId, message);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    await delay(500);
+  }
+  throw new Error(`หน้าคำนวณราคาแพลตฟอร์มใน AdMeta ยังไม่พร้อมรับคำสั่ง (${lastError?.message || "หน้าเว็บยังโหลดไม่เสร็จ"})`);
+}
+
+async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "" }) {
+  const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
+  let readyCalcTab = admetaTabs
+    .filter((tab) => /^https:\/\/admeta\.me\/admin\/platform\/calculator(?:\/.*|\?.*|#.*)?$/i.test(tab.url || ""))
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+
+  if (!readyCalcTab?.id) {
+    const loginTab = admetaTabs.find((tab) =>
+      /\/(?:login|signin|sign-in|auth)(?:\/|$)/i.test(new URL(tab.url || "https://admeta.me/").pathname)
+    );
+    if (loginTab?.id) {
+      await chrome.tabs.update(loginTab.id, { active: true });
+      if (loginTab.windowId) {
+        await chrome.windows.update(loginTab.windowId, { focused: true }).catch(() => {});
+      }
+      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาแพลตฟอร์มอีกครั้ง");
+    }
+    readyCalcTab = await chrome.tabs.create({
+      url: "https://admeta.me/admin/platform/calculator",
+      active: true
+    });
+  } else {
+    await chrome.tabs.update(readyCalcTab.id, { active: true });
+    if (readyCalcTab.windowId) {
+      await chrome.windows.update(readyCalcTab.windowId, { focused: true }).catch(() => {});
+    }
+  }
+
+  let result;
+  try {
+    result = await sendPlatformCalculatorMessage(readyCalcTab.id, {
+      type: "ADD_PLATFORM_CALC_ITEM",
+      kind,
+      title,
+      diyUrl
+    });
+  } catch (error) {
+    if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
+    const errorMessage = `ติดต่อหน้าคำนวณราคาแพลตฟอร์ม AdMeta ไม่สำเร็จ (${error.message})`;
+    await showTabStatus(readyCalcTab.id, errorMessage, true);
+    throw new Error(errorMessage);
+  }
+
+  if (!result?.ok) {
+    const errorMessage = result?.error || "เพิ่มรายการในหน้าคำนวณราคาแพลตฟอร์มไม่สำเร็จ";
+    await showTabStatus(readyCalcTab.id, errorMessage, true);
+    throw new Error(errorMessage);
+  }
+
+  let statusText = "เพิ่มรายการสินค้าในระบบคำนวณราคาแพลตฟอร์มแล้ว";
+  if (kind === "diy") {
+    statusText = "กดเพิ่มสินค้า DIY วางลิงก์และดึงข้อมูลในระบบคำนวณราคาแพลตฟอร์มแล้ว";
+  } else if (kind === "comset") {
+    statusText = `กดเพิ่มคอมเซ็ตและวาง "${title}" ในช่องค้นหาแล้ว`;
+  } else {
+    statusText = `กดเพิ่มสินค้าปกติและวาง "${title}" ในช่องค้นหาแล้ว`;
+  }
+  await showTabStatus(readyCalcTab.id, statusText);
+  return { ok: true, kind, tabId: readyCalcTab.id };
+}
+
 async function getProductData(tabId) {
   let lastError;
   for (let attempt = 0; attempt < 10; attempt++) {
     try {
       const result = await chrome.tabs.sendMessage(tabId, { type: "GET_PRODUCT_DATA" });
-      if (result?.text && result?.imageUrl) {
+      if (result?.text) {
         return result;
       }
       if (result?.error) {
@@ -1063,7 +1298,7 @@ chrome.commands.onCommand.addListener(async (command) => {
         const zaapiTab = await verifyZaapiTab(tab);
         const { lastZaapiProduct } = await chrome.storage.local.get({ lastZaapiProduct: null });
         if (!lastZaapiProduct) throw new Error("ยังไม่มีสินค้าให้เตรียม กรุณาเริ่มจากหน้าสินค้าบน iHAVECPU");
-        const imageDataUrl = await fetchProductImage(lastZaapiProduct.imageUrl);
+        const imageDataUrl = await fetchProductImage(lastZaapiProduct.imageUrls || lastZaapiProduct.imageUrl);
         const result = await sendZaapiMessage(zaapiTab.id, {
           type: "PREPARE_ZAAPI_PRODUCT",
           text: lastZaapiProduct.text,

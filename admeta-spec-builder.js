@@ -565,6 +565,168 @@
     return { ok: true, searchTerm: cleanTerm };
   }
 
+  function findPlatformButton(labelRegex) {
+    const buttons = [...document.querySelectorAll("button, [role='button'], a")].filter((btn) => {
+      if (!btn || btn.disabled) return false;
+      const style = window.getComputedStyle(btn);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+      return labelRegex.test(text);
+    });
+    return buttons[0] || null;
+  }
+
+  function isPlatformSearchRowInput(el) {
+    if (!isVisibleInput(el)) return false;
+    const ph = (el.placeholder || "").toLowerCase();
+    if (/ลิงก์\s*diy|วางลิงก์|ihavecpu\.com/i.test(ph)) return false;
+    if (/พิมพ์ค้นหา|ค้นหาชื่อสินค้า|ชื่อสินค้า|ค้นหา/i.test(ph)) return true;
+    const rect = el.getBoundingClientRect();
+    return rect.width >= 180;
+  }
+
+  function rowHasPcSetBadge(inp) {
+    let curr = inp?.parentElement;
+    for (let depth = 0; depth < 3 && curr; depth++) {
+      const rect = curr.getBoundingClientRect();
+      if (rect.height > 100) break;
+      if ((curr.innerText || "").toUpperCase().includes("PC SET")) {
+        return true;
+      }
+      curr = curr.parentElement;
+    }
+    return false;
+  }
+
+  function findPlatformSearchRowInputs() {
+    return [...document.querySelectorAll("input")].filter(isPlatformSearchRowInput);
+  }
+
+  function setPlatformInputValue(input, value, pressEnter = false) {
+    if (!input) return;
+    input.focus();
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set ||
+      function (v) { this.value = v; };
+    valueSetter.call(input, "");
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
+    valueSetter.call(input, value);
+    input.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: value
+    }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "End", code: "End" }));
+    if (pressEnter) {
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+      input.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    }
+  }
+
+  function findPlatformDIYModalInput(beforeInputs = null) {
+    const allVisible = [...document.querySelectorAll("input")].filter(isVisibleInput);
+    if (beforeInputs) {
+      const newlyAdded = allVisible.find((inp) => !beforeInputs.has(inp));
+      if (newlyAdded) return newlyAdded;
+    }
+    for (const inp of allVisible) {
+      const ph = `${inp.placeholder || ""} ${inp.getAttribute("aria-label") || ""}`;
+      if (/วางลิงก์\s*DIY|ลิงก์\s*DIY|ihavecpu\.com\/diy/i.test(ph)) return inp;
+    }
+    const dialogs = [...document.querySelectorAll(".modal, [role='dialog'], [class*='modal'], div")]
+      .filter((el) => {
+        if (!el || el.children.length === 0) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        const txt = el.innerText || "";
+        return txt.includes("ดึงสเปคจัดคอมพิวเตอร์ DIY") || txt.includes("วางลิงก์ DIY");
+      });
+    for (const d of dialogs) {
+      const inp = [...d.querySelectorAll("input")].find(isVisibleInput);
+      if (inp) return inp;
+    }
+    return null;
+  }
+
+  async function addPlatformCalculatorItem({ kind, title, diyUrl }) {
+    if (isLoginPage()) {
+      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพทฟอมอีกครั้ง");
+    }
+    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+      throw new Error("กรุณาเปิดหน้าคำนวณราคาแพลตฟอร์มก่อน");
+    }
+
+    await waitFor(() => {
+      if (isLoginPage()) {
+        throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพทฟอมอีกครั้ง");
+      }
+      return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต/i);
+    }, 15000, "ไม่พบปุ่มเพิ่มสินค้าบนหน้าคำนวณราคาแพลตฟอร์ม");
+
+    if (kind === "diy") {
+      if (!diyUrl) throw new Error("ไม่พบลิงก์สเป็ค DIY");
+      let modalInput = findPlatformDIYModalInput();
+      if (!modalInput) {
+        const beforeInputs = new Set([...document.querySelectorAll("input")].filter(isVisibleInput));
+        const diyBtn = findPlatformButton(/เพิ่มสินค้า\s*DIY/i);
+        if (!diyBtn) throw new Error("ไม่พบปุ่ม 'เพิ่มสินค้า DIY'");
+        diyBtn.click();
+        modalInput = await waitFor(
+          () => findPlatformDIYModalInput(beforeInputs),
+          10000,
+          "เปิดหน้าต่างดึงสเปค DIY แล้วแต่ไม่พบช่องวางลิงก์ DIY"
+        );
+      }
+      setPlatformInputValue(modalInput, diyUrl, false);
+      setTimeout(() => {
+        const confirmBtn = findPlatformButton(/ยืนยันดึงข้อมูล/);
+        if (confirmBtn) confirmBtn.click();
+      }, 250);
+      return { ok: true, kind: "diy", diyUrl };
+    }
+
+    const cleanTitle = (title || "").trim();
+    if (!cleanTitle) throw new Error("ไม่พบชื่อรายการสินค้า");
+
+    const isComset = kind === "comset";
+    const buttonRegex = isComset ? /เพิ่มคอมเซ็ต/ : /เพิ่มสินค้าปกติ/;
+
+    const existingRowInputs = findPlatformSearchRowInputs();
+    let targetInput = existingRowInputs.find((inp) => {
+      if ((inp.value || "").trim() !== "") return false;
+      const hasPcSetBadge = rowHasPcSetBadge(inp);
+      return isComset ? hasPcSetBadge : !hasPcSetBadge;
+    });
+
+    if (!targetInput) {
+      const beforeSet = new Set(existingRowInputs);
+      const beforeAllVisible = new Set([...document.querySelectorAll("input")].filter(isVisibleInput));
+      const addBtn = findPlatformButton(buttonRegex);
+      if (!addBtn) {
+        throw new Error(isComset ? "ไม่พบปุ่ม 'เพิ่มคอมเซ็ต'" : "ไม่พบปุ่ม 'เพิ่มสินค้าปกติ'");
+      }
+      addBtn.click();
+      targetInput = await waitFor(() => {
+        const currentRowInputs = findPlatformSearchRowInputs();
+        const newRowInput = currentRowInputs.find((inp) => !beforeSet.has(inp));
+        if (newRowInput) return newRowInput;
+        const emptyRowInput = currentRowInputs[currentRowInputs.length - 1];
+        if (emptyRowInput && (emptyRowInput.value || "").trim() === "") return emptyRowInput;
+        const allVis = [...document.querySelectorAll("input")].filter(isVisibleInput);
+        const anyNew = allVis.find((inp) => !beforeAllVisible.has(inp));
+        return anyNew || null;
+      }, 10000, "กดเพิ่มรายการแล้วแต่ไม่พบช่องค้นหาชื่อสินค้า");
+    }
+
+    try {
+      targetInput.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch {}
+    setPlatformInputValue(targetInput, cleanTitle, false);
+
+    return { ok: true, kind: isComset ? "comset" : "normal", title: cleanTitle };
+  }
+
   function showStatus(message, isError) {
     let status = document.getElementById("ihavecpu-admeta-status");
     if (!status) {
@@ -697,11 +859,25 @@
       return;
     }
     if (message?.type === "CHECK_UNSAVED_INPUT") {
+      if (/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+        const hasRows = findPlatformSearchRowInputs().some((inp) => (inp.value || "").trim().length > 0);
+        sendResponse({
+          hasUnsaved: hasRows,
+          title: document.title?.trim() || "AdMeta Platform Calculator"
+        });
+        return;
+      }
       sendResponse({
         hasUnsaved: false,
         title: document.title?.trim() || "AdMeta Spec Builder V2"
       });
       return;
+    }
+    if (message?.type === "ADD_PLATFORM_CALC_ITEM") {
+      addPlatformCalculatorItem(message)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error.message || "เพิ่มรายการในหน้าคำนวณราคาแพลตฟอร์มไม่สำเร็จ" }));
+      return true;
     }
     if (message?.type === "SHOW_STATUS") {
       showStatus(message.message || "", message.isError === true);

@@ -39,6 +39,8 @@
     title = title.replace(/\s*[|–-]\s*iHAVECPU\s*$/i, "").trim();
 
     let price = "";
+    const h1El = document.querySelector("main h1, h1");
+    const h1Rect = h1El && visible(h1El) ? h1El.getBoundingClientRect() : null;
     const priceMetadataSelectors = [
       "meta[property='product:price:amount']",
       "meta[itemprop='price']",
@@ -49,30 +51,51 @@
     ];
     const candidates = [];
     const isExcludedPrice = (el) => {
-      const excluded = /old|original|regular|installment|monthly|strike|cross|compare|was-price|list-price|line.?through|is-old/i;
+      if (!el || !(el instanceof Element)) return false;
+      const excluded = /old|original|regular|installment|monthly|strike|cross|compare|was-price|list-price|line.?through|is-old|discount-percent|badge/i;
       if (el.matches("del, s, strike, [aria-label*='installment' i]")) return true;
       for (let parent = el; parent && parent !== document.body; parent = parent.parentElement) {
         if (excluded.test(`${parent.className || ""} ${parent.id || ""}`)) return true;
         if (parent.matches("del, s, strike")) return true;
-        if (getComputedStyle(parent).textDecorationLine.includes("line-through")) return true;
+        const tdLine = getComputedStyle(parent).textDecorationLine || getComputedStyle(parent).textDecoration || "";
+        if (tdLine.includes("line-through")) return true;
       }
       return false;
     };
+    const getCleanPriceText = (el) => {
+      if (el.matches("meta")) return clean(el.content || "");
+      const attrVal = el.getAttribute("content") || el.getAttribute("value");
+      if (attrVal) return clean(attrVal);
+      if (el.children.length === 0) return clean(el.innerText || el.textContent || "");
+      let parts = [];
+      for (const node of el.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const t = clean(node.nodeValue || "");
+          if (t) parts.push(t);
+        } else if (node.nodeType === Node.ELEMENT_NODE && !isExcludedPrice(node) && node.children.length === 0) {
+          const t = clean(node.innerText || node.textContent || "");
+          if (t) parts.push(t);
+        }
+      }
+      return clean(parts.join(" "));
+    };
     const addPriceCandidate = (el, metadataPriority) => {
       if (isExcludedPrice(el) || (!visible(el) && !el.matches("meta"))) return;
-      const raw = el.matches("meta")
-        ? (el.content || "")
-        : (el.getAttribute("content") || el.getAttribute("value") || el.innerText || el.textContent || "");
-      const txt = clean(raw);
-      if (/ราคาปกติ|ราคาเดิม|ราคาก่อนลด|ผ่อน|ต่อเดือน|รายเดือน|original price|regular price|installment|monthly/i.test(txt)) return;
+      const txt = getCleanPriceText(el);
+      if (!txt || /ราคาปกติ|ราคาเดิม|ราคาก่อนลด|ผ่อน|ต่อเดือน|รายเดือน|ประหยัด|original price|regular price|installment|monthly/i.test(txt)) return;
       const match = txt.match(/฿\s*[\d,]+(?:\.\d{1,2})?|[\d,]+(?:\.\d{1,2})?\s*บาท|^[\d,]+(?:\.\d{1,2})?$/);
       if (!match) return;
       const value = clean(match[0]).replace(/\s+/g, "");
       const rect = el.getBoundingClientRect();
       const description = `${el.className || ""} ${el.id || ""} ${el.getAttribute("itemprop") || ""}`;
+      const fontSize = el.matches("meta") ? 16 : (parseFloat(getComputedStyle(el).fontSize) || 14);
+      const nearH1Bonus = h1Rect && rect.top >= h1Rect.top - 40 && rect.top <= h1Rect.bottom + 360 ? 45 : 0;
+      const fontSizeBonus = fontSize >= 20 ? 25 : (fontSize >= 17 ? 10 : 0);
       candidates.push({
         value: /^฿/.test(value) ? value : `฿${value.replace(/\s*บาท$/, "")}`,
         score: metadataPriority +
+          nearH1Bonus +
+          fontSizeBonus +
           (/(current|sale|product).*price|price.*(current|sale|product)/i.test(description) ? 10 : 0) +
           (rect.width < 500 && rect.height < 100 ? 2 : 0) - (txt.length > 100 ? 3 : 0)
       });
@@ -84,6 +107,11 @@
     }
     for (const selector of priceSelectors) {
       for (const el of document.querySelectorAll(selector)) {
+        addPriceCandidate(el, 15);
+      }
+    }
+    for (const el of document.querySelectorAll("main *, [class*='product'] *, [class*='Product'] *")) {
+      if (el.children.length <= 3) {
         addPriceCandidate(el, 0);
       }
     }
@@ -91,33 +119,39 @@
     if (candidates.length) price = candidates[0].value;
     if (!price) {
       const fallback = [...document.querySelectorAll("body *")]
-        .filter((el) => el.children.length === 0 && visible(el) && !isExcludedPrice(el))
-        .map((el) => clean(el.innerText || el.textContent || ""))
-        .find((text) => !/ราคาปกติ|ราคาเดิม|ราคาก่อนลด|ผ่อน|ต่อเดือน|รายเดือน|installment|monthly/i.test(text) &&
+        .filter((el) => el.children.length <= 2 && visible(el) && !isExcludedPrice(el))
+        .map((el) => getCleanPriceText(el))
+        .find((text) => text && !/ราคาปกติ|ราคาเดิม|ราคาก่อนลด|ผ่อน|ต่อเดือน|รายเดือน|installment|monthly/i.test(text) &&
           /฿\s*[\d,]+(?:\.\d{1,2})?|[\d,]+(?:\.\d{1,2})?\s*บาท/.test(text));
       const match = fallback?.match(/฿\s*[\d,]+(?:\.\d{1,2})?|[\d,]+(?:\.\d{1,2})?\s*บาท/);
       if (match) price = clean(match[0]).replace(/\s+/g, "").replace(/\s*บาท$/, "");
     }
 
-    // Prefer the main product image; fall back to Open Graph image.
-    const imageSelectors = [
-      "main img", "[class*='product'] img", "[class*='Product'] img",
-      "meta[property='og:image']"
-    ];
-    let imageUrl = "";
-    for (const selector of imageSelectors) {
-      const el = document.querySelector(selector);
-      if (!el) continue;
-      const candidate = el.matches("meta") ? el.content : (el.currentSrc || el.src || el.getAttribute("data-src") || "");
-      if (candidate && /^https?:/i.test(candidate) && (el.matches("meta") || visible(el))) {
-        imageUrl = candidate;
-        if (selector === "main img" || selector === "meta[property='og:image']") break;
-      }
+    // Prefer the main product image (largest visible product image on S3); keep fallback URLs.
+    const scoredImages = [];
+    const seenUrls = new Set();
+    const imgElements = document.querySelectorAll("main img, [class*='product'] img, [class*='Product'] img");
+    for (const img of imgElements) {
+      if (!visible(img)) continue;
+      const candidate = clean(img.currentSrc || img.src || img.getAttribute("data-src") || "");
+      if (!candidate || !/^https?:/i.test(candidate) || seenUrls.has(candidate)) continue;
+      const rect = img.getBoundingClientRect();
+      if (rect.width < 55 || rect.height < 55) continue;
+      seenUrls.add(candidate);
+      const isS3 = /ihcupload-bkk\.s3\.ap-southeast-7\.amazonaws\.com/i.test(candidate);
+      const isLarge = rect.width >= 160 && rect.height >= 160;
+      const nearTopBonus = rect.top >= 0 && rect.top <= 750 ? 200 : 0;
+      const score = (isS3 ? 1000 : 0) + (isLarge ? 500 : 0) + nearTopBonus + Math.min(rect.width, 600);
+      scoredImages.push({ url: candidate, score });
     }
-    if (!imageUrl) {
-      const meta = document.querySelector("meta[property='og:image']");
-      if (meta?.content) imageUrl = meta.content;
+    scoredImages.sort((a, b) => b.score - a.score);
+    const ogMeta = document.querySelector("meta[property='og:image']");
+    const ogUrl = clean(ogMeta?.content || "");
+    if (ogUrl && /^https?:/i.test(ogUrl) && !seenUrls.has(ogUrl)) {
+      scoredImages.push({ url: ogUrl, score: 100 });
     }
+    const imageUrls = scoredImages.map((item) => item.url);
+    const imageUrl = imageUrls[0] || "";
 
     let sku = "";
     const skuSelectors = [
@@ -160,7 +194,7 @@
       }
     }
 
-    return { title, sku, price, url: location.href.split("#")[0], imageUrl };
+    return { title, sku, price, url: location.href.split("#")[0], imageUrl, imageUrls };
   }
 
   async function copyText(text) {
@@ -319,6 +353,8 @@
       type: "PREPARE_ZAAPI_PRODUCT",
       text: formattedText,
       imageUrl: product.imageUrl,
+      imageUrls: product.imageUrls || (product.imageUrl ? [product.imageUrl] : []),
+      allowTextOnlyFallback: true,
       fileName: `${(product.title || "ihavecpu-product").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80)}.png`
     });
     if (!result?.ok) throw new Error(result?.error || "ใส่ข้อความใน Zaapi ไม่สำเร็จ");
@@ -458,6 +494,43 @@
 
   let currentPlatformMode = "zaapi";
 
+  function isComputerSetProduct(title) {
+    const t = (title || "").trim();
+    if (/(?:^|[\s_(\[])(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z0-9]*-[A-Z0-9-]+/i.test(t)) {
+      return true;
+    }
+    if (/^[A-Z]{2,8}\d{2}-[A-Z0-9]+-\d+/i.test(t)) {
+      return true;
+    }
+    if (/(?:เซ็ตคอม|คอมเซ็ต|ชุดคอมประกอบ|คอมประกอบ|PC\s*SET|COMPUTER\s*SET)/i.test(t)) {
+      return true;
+    }
+    const breadcrumbText = (document.querySelector("nav, [class*='breadcrumb']")?.innerText || "").trim();
+    if (/(?:จัดสเปคคอม|คอมพิวเตอร์เซ็ต|เซ็ตคอม|คอมเซ็ต|computer\s*set)/i.test(breadcrumbText)) {
+      return true;
+    }
+    return false;
+  }
+
+  async function openPlatformCalculator(payload) {
+    let result;
+    try {
+      result = await chrome.runtime.sendMessage({
+        type: "OPEN_PLATFORM_CALCULATOR",
+        ...payload
+      });
+    } catch (error) {
+      if (/extension context invalidated/i.test(error.message || "")) {
+        throw new Error("ส่วนขยายเพิ่งอัปเดต กรุณาลองคำนวณราคาสินค้าแพทฟอมอีกครั้ง");
+      }
+      throw error;
+    }
+    if (!result?.ok) {
+      throw new Error(result?.error || "เปิดหน้าคำนวณราคาสินค้าแพทฟอมไม่สำเร็จ");
+    }
+    return result;
+  }
+
   async function calculateAdmetaAndCopyOnly() {
     let result;
     try {
@@ -490,6 +563,17 @@
         return;
       }
 
+      if (kind === "platform-calc-diy") {
+        if (!/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(location.href)) {
+          throw new Error("กรุณาเปิดหน้าแชร์สเป็ค DIY ก่อนคำนวณราคาสินค้าแพทฟอม");
+        }
+        const diyUrl = location.href.split("#")[0];
+        await copyText(diyUrl);
+        await openPlatformCalculator({ kind: "diy", diyUrl });
+        showToast("คัดลอกลิงก์ DIY และเปิดหน้าคำนวณราคาแพทฟอมแล้ว");
+        return;
+      }
+
       if (kind === "promo-admeta-upgrade") {
         const product = await waitForProductExtract(isAutoRetry ? 8000 : 4000);
         await openPromoSetInAdmeta(product);
@@ -518,9 +602,15 @@
       if (kind === "text") {
         await copyText(formatAddProductText(product));
         showToast("คัดลอกข้อความเพื่อเพิ่มสินค้าแล้ว");
-      } else if (kind === "platform-product") {
-        await copyText(formatProductText(product));
-        showToast("คัดลอกข้อความสินค้าสำหรับแพทฟอมแล้ว (ไม่ส่งเข้า Zaapi)");
+      } else if (kind === "platform-calc-product" || kind === "platform-product") {
+        await copyText(product.title);
+        const itemKind = isComputerSetProduct(product.title) ? "comset" : "normal";
+        await openPlatformCalculator({ kind: itemKind, title: product.title });
+        showToast(
+          itemKind === "comset"
+            ? "คัดลอกชื่อเซ็ตคอมและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพทฟอมแล้ว"
+            : "คัดลอกชื่อสินค้าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพทฟอมแล้ว"
+        );
       } else if (kind === "zaapi") {
         await fillZaapi(product);
       } else {
@@ -554,10 +644,10 @@
     } catch {}
 
     const defaultNotes = [
+      "+อัพเดทปุ่มโหมดแพทฟอม คำนวณราคาสินค้าแพทฟอม (เพิ่มสินค้าปกติ / เซ็ต DIY / คอมเซ็ต อัตโนมัติ)",
       "+อัพเดทปุ่ม คัดลอกเพื่อเพิ่มสินค้า (+ราคา ชื่อสินค้า) สำหรับเพิ่มรายการสินค้า",
-      "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบนสำหรับคัดลอกไปใช้แพลตฟอร์มอื่น",
-      "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ",
-      "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท"
+      "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบน",
+      "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ"
     ];
     const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
       ? status.releaseNotes
@@ -632,13 +722,13 @@
     const isPlatform = platformMode === "platform";
     if (isDIYShare) {
       return isPlatform
-        ? '<button data-action="platform-diy-admeta">คำนวณใน AdMeta แล้วคัดลอกข้อความ (แพทฟอม)</button><button class="secondary" data-action="platform-diy-text">คัดลอกเฉพาะลิงก์ + ราคา (แพทฟอม)</button>'
+        ? '<button data-action="platform-calc-diy">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="platform-diy-text">คัดลอกเฉพาะลิงก์ + ราคา (แพทฟอม)</button>'
         : '<button data-action="diy-admeta-zaapi">คำนวณใน AdMeta แล้วใส่ข้อความใน Zaapi</button><button class="secondary" data-action="diy-zaapi">ใส่เฉพาะลิงก์ + ราคาใน Zaapi (ไม่ส่ง)</button>';
     }
     if (!hasProduct) return "";
     const promoBtn = isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : "";
     return isPlatform
-      ? `${promoBtn}<button data-action="platform-product">คัดลอกข้อความสินค้า (โหมดแพทฟอม)</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`
+      ? `${promoBtn}<button data-action="platform-calc-product">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`
       : `${promoBtn}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`;
   }
 
@@ -1011,10 +1101,12 @@
     }
     if (message?.type === "GET_PRODUCT_DATA") {
       const product = extract();
-      sendResponse(product.title && product.price && product.imageUrl
+      sendResponse(product.title && product.price
         ? {
           text: formatProductText(product),
-          imageUrl: product.imageUrl,
+          imageUrl: product.imageUrl || "",
+          imageUrls: product.imageUrls || (product.imageUrl ? [product.imageUrl] : []),
+          allowTextOnlyFallback: true,
           fileName: `${(product.title || "ihavecpu-product").replace(/[\\/:*?"<>|]/g, "_").slice(0, 80)}.png`
         }
         : { error: "หาไม่พบชื่อสินค้า ราคา หรือรูป" });
@@ -1152,7 +1244,7 @@
     if (location.hostname !== "app.zaapi.com" || typeof text !== "string" || !text.trim()) {
       throw new Error("ข้อมูลสินค้าไม่ถูกต้อง");
     }
-    if (typeof imageDataUrl !== "string" || !/^data:image\/(?:png|jpeg|webp);base64,/i.test(imageDataUrl)) {
+    if (typeof imageDataUrl !== "string" || !/^data:image\/[a-z0-9.+-]+;base64,/i.test(imageDataUrl)) {
       throw new Error("ข้อมูลรูปสินค้าไม่ถูกต้อง");
     }
     const editor = await waitForZaapiComposer(8000);
@@ -1160,11 +1252,25 @@
     const imageInput = findZaapiImageInput(editor);
     if (!imageInput) throw new Error("ไม่พบช่องแนบรูปของช่องพิมพ์แชต Zaapi");
 
-    const imageBlob = await (await fetch(imageDataUrl)).blob();
+    let imageBlob = await (await fetch(imageDataUrl)).blob();
     if (!imageBlob.type.startsWith("image/") || imageBlob.size > 16 * 1024 * 1024) {
       throw new Error("ไฟล์รูปไม่ถูกต้องหรือมีขนาดใหญ่เกินไป");
     }
-    const extension = imageBlob.type === "image/jpeg" ? "jpg" : imageBlob.type.split("/")[1];
+    if (!/^image\/(?:png|jpeg|webp)$/i.test(imageBlob.type)) {
+      try {
+        const bitmap = await createImageBitmap(imageBlob);
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+        const converted = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (converted) imageBlob = converted;
+      } catch {}
+    }
+    const rawExt = (imageBlob.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+    const extension = imageBlob.type === "image/jpeg" ? "jpg" : (rawExt || "png");
     const baseName = (fileName || "ihavecpu-product").replace(/\.[^.]+$/, "");
     const imageFile = new File([imageBlob], `${baseName}.${extension}`, { type: imageBlob.type });
     const transfer = new DataTransfer();
