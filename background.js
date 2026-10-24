@@ -533,7 +533,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     openAndAddPlatformCalculatorItem({
       kind: message.kind,
       title: message.title || "",
-      diyUrl: message.diyUrl || ""
+      diyUrl: message.diyUrl || "",
+      resetFirst: Boolean(message.resetFirst)
     })
       .then((result) => {
         sendResponse(result);
@@ -1187,7 +1188,7 @@ async function sendPlatformCalculatorMessage(tabId, message) {
   throw new Error(`หน้าคำนวณราคาแพลตฟอร์มใน AdMeta ยังไม่พร้อมรับคำสั่ง (${lastError?.message || "หน้าเว็บยังโหลดไม่เสร็จ"})`);
 }
 
-async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "" }) {
+async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "", resetFirst = false }) {
   const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
   let readyCalcTab = admetaTabs
     .filter((tab) => /^https:\/\/admeta\.me\/admin\/platform\/calculator(?:\/.*|\?.*|#.*)?$/i.test(tab.url || ""))
@@ -1221,8 +1222,20 @@ async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "" 
       type: "ADD_PLATFORM_CALC_ITEM",
       kind,
       title,
-      diyUrl
+      diyUrl,
+      resetFirst
     });
+    if (result?.needsPageReload) {
+      await navigateTabAndWait(readyCalcTab.id, "https://admeta.me/admin/platform/calculator", RELOAD_TIMEOUT_MS);
+      await delay(400);
+      result = await sendPlatformCalculatorMessage(readyCalcTab.id, {
+        type: "ADD_PLATFORM_CALC_ITEM",
+        kind,
+        title,
+        diyUrl,
+        resetFirst: false
+      });
+    }
   } catch (error) {
     if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
     const errorMessage = `ติดต่อหน้าคำนวณราคาแพลตฟอร์ม AdMeta ไม่สำเร็จ (${error.message})`;
@@ -1236,13 +1249,14 @@ async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "" 
     throw new Error(errorMessage);
   }
 
-  let statusText = "เพิ่มรายการสินค้าในระบบคำนวณราคาแพลตฟอร์มแล้ว";
+  const resetPrefix = resetFirst ? "รีเซ็ตรายการเก่าแล้ว • " : "";
+  let statusText = `${resetPrefix}เพิ่มรายการสินค้าในระบบคำนวณราคาแพลตฟอร์มแล้ว`;
   if (kind === "diy") {
-    statusText = "กดเพิ่มสินค้า DIY วางลิงก์และดึงข้อมูลในระบบคำนวณราคาแพลตฟอร์มแล้ว";
+    statusText = `${resetPrefix}กดเพิ่มสินค้า DIY วางลิงก์และดึงข้อมูลในระบบคำนวณราคาแพลตฟอร์มแล้ว`;
   } else if (kind === "comset") {
-    statusText = `กดเพิ่มคอมเซ็ตและวาง "${title}" ในช่องค้นหาแล้ว`;
+    statusText = `${resetPrefix}กดเพิ่มคอมเซ็ตและวาง "${title}" ในช่องค้นหาแล้ว`;
   } else {
-    statusText = `กดเพิ่มสินค้าปกติและวาง "${title}" ในช่องค้นหาแล้ว`;
+    statusText = `${resetPrefix}กดเพิ่มสินค้าปกติและวาง "${title}" ในช่องค้นหาแล้ว`;
   }
   await showTabStatus(readyCalcTab.id, statusText);
   return { ok: true, kind, tabId: readyCalcTab.id };

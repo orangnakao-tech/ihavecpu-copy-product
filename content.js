@@ -563,14 +563,19 @@
         return;
       }
 
-      if (kind === "platform-calc-diy") {
+      if (kind === "platform-calc-diy" || kind === "platform-calc-diy-reset") {
         if (!/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(location.href)) {
           throw new Error("กรุณาเปิดหน้าแชร์สเป็ค DIY ก่อนคำนวณราคาสินค้าแพทฟอม");
         }
         const diyUrl = location.href.split("#")[0];
+        const resetFirst = kind === "platform-calc-diy-reset";
         await copyText(diyUrl);
-        await openPlatformCalculator({ kind: "diy", diyUrl });
-        showToast("คัดลอกลิงก์ DIY และเปิดหน้าคำนวณราคาแพทฟอมแล้ว");
+        await openPlatformCalculator({ kind: "diy", diyUrl, resetFirst });
+        showToast(
+          resetFirst
+            ? "รีเซ็ตรายการเก่าและวางลิงก์ DIY ในหน้าคำนวณราคาแพทฟอมแล้ว"
+            : "คัดลอกลิงก์ DIY และเปิดหน้าคำนวณราคาแพทฟอมแล้ว"
+        );
         return;
       }
 
@@ -602,15 +607,24 @@
       if (kind === "text") {
         await copyText(formatAddProductText(product));
         showToast("คัดลอกข้อความเพื่อเพิ่มสินค้าแล้ว");
-      } else if (kind === "platform-calc-product" || kind === "platform-product") {
+      } else if (kind === "platform-calc-product" || kind === "platform-calc-product-reset" || kind === "platform-product") {
+        const resetFirst = kind === "platform-calc-product-reset";
         await copyText(product.title);
         const itemKind = isComputerSetProduct(product.title) ? "comset" : "normal";
-        await openPlatformCalculator({ kind: itemKind, title: product.title });
-        showToast(
-          itemKind === "comset"
-            ? "คัดลอกชื่อเซ็ตคอมและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพทฟอมแล้ว"
-            : "คัดลอกชื่อสินค้าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพทฟอมแล้ว"
-        );
+        await openPlatformCalculator({ kind: itemKind, title: product.title, resetFirst });
+        if (resetFirst) {
+          showToast(
+            itemKind === "comset"
+              ? "รีเซ็ตรายการเก่าและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพทฟอมแล้ว"
+              : "รีเซ็ตรายการเก่าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพทฟอมแล้ว"
+          );
+        } else {
+          showToast(
+            itemKind === "comset"
+              ? "คัดลอกชื่อเซ็ตคอมและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพทฟอมแล้ว"
+              : "คัดลอกชื่อสินค้าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพทฟอมแล้ว"
+          );
+        }
       } else if (kind === "zaapi") {
         await fillZaapi(product);
       } else {
@@ -722,14 +736,31 @@
     const isPlatform = platformMode === "platform";
     if (isDIYShare) {
       return isPlatform
-        ? '<button data-action="platform-calc-diy">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="platform-diy-text">คัดลอกเฉพาะลิงก์ + ราคา (แพทฟอม)</button>'
+        ? '<button data-action="platform-calc-diy">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="platform-calc-diy-reset">คำนวณพร้อมรีเซ็ตรายการเก่าออก</button>'
         : '<button data-action="diy-admeta-zaapi">คำนวณใน AdMeta แล้วใส่ข้อความใน Zaapi</button><button class="secondary" data-action="diy-zaapi">ใส่เฉพาะลิงก์ + ราคาใน Zaapi (ไม่ส่ง)</button>';
     }
     if (!hasProduct) return "";
     const promoBtn = isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : "";
     return isPlatform
-      ? `${promoBtn}<button data-action="platform-calc-product">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`
+      ? `${promoBtn}<button data-action="platform-calc-product">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="platform-calc-product-reset">คำนวณพร้อมรีเซ็ตรายการเก่าออก</button>`
       : `${promoBtn}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`;
+  }
+
+  function isSingleProductDetailPage(extracted) {
+    if (!/^\/product\/[^/?#]+/i.test(location.pathname)) return false;
+    if (/^\/product\/(?:search|category|categories|brand|brands|tag|tags|list|all|promotion|promotions|compare)(?:\/|$)/i.test(location.pathname)) {
+      return false;
+    }
+    if (/[?&](?:search|q|keyword|page|sort)=/i.test(location.search || "")) {
+      return false;
+    }
+    const bodyText = document.body?.innerText || "";
+    if (/การค้นหา\s*["“].*?["”][\s\S]{0,120}จำนวน\s*[\d,]+\s*รายการ/.test(bodyText)) {
+      return false;
+    }
+    const hasSkuLabel = /รหัสสินค้า\s*:?\s*[A-Za-z0-9_./-]+/i.test(bodyText);
+    const hasBuyAction = /เพิ่มในตะกร้า|ซื้อเลย|สินค้าหมด|หยิบใส่ตะกร้า/.test(bodyText);
+    return Boolean(extracted.title && extracted.price && (hasSkuLabel || hasBuyAction));
   }
 
   function applyPlatformThemeToWrap(wrap, launcher, platformMode) {
@@ -765,11 +796,7 @@
     }
 
     const extracted = isIhavecpuSite ? extract() : { title: "", price: "", sku: "" };
-    const isListingOrNonProductPath = /^\/(?:$|category(?:\/|$)|search(?:\/|$)|diy\/?$|promotion(?:\/|$)|brand(?:\/|$)|cart(?:\/|$)|checkout(?:\/|$)|account(?:\/|$)|login(?:\/|$)|register(?:\/|$)|article(?:\/|$)|blog(?:\/|$)|contact(?:\/|$)|about(?:\/|$))/i.test(location.pathname);
-    const hasProduct = isIhavecpuSite && !isListingOrNonProductPath && (
-      (/^\/product\/[^/?#]+/i.test(location.pathname) && Boolean(extracted.title && extracted.price)) ||
-      Boolean(extracted.title && extracted.price && extracted.sku)
-    );
+    const hasProduct = isIhavecpuSite && isSingleProductDetailPage(extracted);
     const productTitle = extracted.title;
     const isPromoSet = /(?:^|[\s_(\[])(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z0-9]*-[A-Z0-9-]+/i.test(productTitle);
     const actions = buildActionsHtml(isDIYShare, hasProduct, isPromoSet, currentPlatformMode);
@@ -972,7 +999,8 @@
   function syncPageControls() {
     const isIhc = /^https:\/\/(www\.)?ihavecpu\.com\//i.test(location.href);
     const snap = isIhc ? extract() : { title: "", price: "", sku: "" };
-    const pageKey = `${location.href}\n${document.title}\n${document.querySelector("main h1, h1")?.textContent || ""}\n${snap.title}\n${snap.price}\n${snap.sku}\n${currentPlatformMode}`;
+    const singleProduct = isIhc ? isSingleProductDetailPage(snap) : false;
+    const pageKey = `${location.href}\n${document.title}\n${document.querySelector("main h1, h1")?.textContent || ""}\n${snap.title}\n${snap.price}\n${snap.sku}\n${singleProduct}\n${currentPlatformMode}`;
     if (pageKey === lastPageKey) return;
     lastPageKey = pageKey;
     addButton();

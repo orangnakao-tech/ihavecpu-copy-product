@@ -602,6 +602,162 @@
     return [...document.querySelectorAll("input")].filter(isPlatformSearchRowInput);
   }
 
+  function findPlatformDeleteButtons() {
+    const rowInputs = findPlatformSearchRowInputs();
+    const deleteTargets = [];
+    const seen = new Set();
+
+    for (const inp of rowInputs) {
+      const inpRect = inp.getBoundingClientRect();
+      let rowEl = inp.closest("tr");
+      if (!rowEl) {
+        let curr = inp.parentElement;
+        while (curr && curr !== document.body) {
+          const r = curr.getBoundingClientRect();
+          if (r.height > 115) break;
+          if (r.width > inpRect.width + 150) rowEl = curr;
+          curr = curr.parentElement;
+        }
+      }
+      const scope = rowEl || document.body;
+      const candidates = [...scope.querySelectorAll("button, [role='button'], a, i[class*='trash' i], i[class*='delete' i], svg")]
+        .filter((el) => {
+          if (!el || el.disabled) return false;
+          if (el.id === "ihc-platform-reset-header-btn" || el.id === "ihc-platform-reset-row-btn") return false;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0 || r.width > 90 || r.height > 60) return false;
+          return r.left > inpRect.right + 40 && Math.abs((r.top + r.height / 2) - (inpRect.top + inpRect.height / 2)) < 40;
+        });
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+        const rawTarget = candidates[0];
+        const clickable = rawTarget.closest("button, [role='button'], a") || rawTarget;
+        if (!seen.has(clickable)) {
+          seen.add(clickable);
+          deleteTargets.push(clickable);
+        }
+      }
+    }
+
+    if (deleteTargets.length === 0) {
+      const trashEls = [...document.querySelectorAll("button, [role='button'], i[class*='trash' i], svg[class*='trash' i]")]
+        .filter((el) => {
+          if (!el || el.id === "ihc-platform-reset-header-btn" || el.id === "ihc-platform-reset-row-btn") return false;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden") return false;
+          const cls = `${el.className || ""} ${el.getAttribute("title") || ""} ${el.getAttribute("aria-label") || ""}`;
+          return /trash|delete|remove|ลบรายการ|ลบสินค้า/i.test(cls);
+        });
+      for (const el of trashEls) {
+        const clickable = el.closest("button, [role='button'], a") || el;
+        if (!seen.has(clickable)) {
+          seen.add(clickable);
+          deleteTargets.push(clickable);
+        }
+      }
+    }
+
+    return deleteTargets;
+  }
+
+  async function clearPlatformCalculatorItems() {
+    const initialInputs = findPlatformSearchRowInputs();
+    const hadItems = initialInputs.length > 0;
+
+    for (let pass = 0; pass < 4; pass++) {
+      const delBtns = findPlatformDeleteButtons();
+      if (delBtns.length === 0) break;
+      for (const btn of [...delBtns].reverse()) {
+        try {
+          btn.click();
+        } catch {}
+      }
+      await new Promise((r) => setTimeout(r, 70));
+    }
+
+    const remainingInputs = findPlatformSearchRowInputs();
+    const hasFilledInputs = remainingInputs.some((inp) => (inp.value || "").trim().length > 0);
+    if (!hasFilledInputs && remainingInputs.length === 1) {
+      setPlatformInputValue(remainingInputs[0], "", false);
+    }
+    const cleared = !hasFilledInputs && remainingInputs.length <= 1;
+    return { cleared, hadItems };
+  }
+
+  function ensurePlatformCalculatorResetButton() {
+    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+      document.getElementById("ihc-platform-reset-header-btn")?.remove();
+      document.getElementById("ihc-platform-reset-row-btn")?.remove();
+      return;
+    }
+
+    const handleResetClick = async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const res = await clearPlatformCalculatorItems();
+      if (res.hadItems && res.cleared) {
+        showStatus("รีเซ็ตรายการคำนวณทั้งหมดเรียบร้อยแล้ว", false);
+      } else {
+        showStatus("กำลังรีเซ็ตหน้าคำนวณราคาแพลตฟอร์มใหม่...", false);
+        location.reload();
+      }
+    };
+
+    const feeBtn = findPlatformButton(/ตั้งค่าค่าธรรมเนียม/);
+    if (feeBtn && feeBtn.parentElement && !document.getElementById("ihc-platform-reset-header-btn")) {
+      const headerResetBtn = document.createElement("button");
+      headerResetBtn.id = "ihc-platform-reset-header-btn";
+      headerResetBtn.type = "button";
+      headerResetBtn.textContent = "🔄 รีเซ็ตรายการใหม่";
+      Object.assign(headerResetBtn.style, {
+        marginRight: "8px",
+        padding: "7px 14px",
+        borderRadius: "8px",
+        border: "1px solid #dc2626",
+        background: "#fef2f2",
+        color: "#dc2626",
+        font: "700 13px Arial,Tahoma,sans-serif",
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "5px"
+      });
+      headerResetBtn.addEventListener("click", handleResetClick);
+      feeBtn.parentElement.insertBefore(headerResetBtn, feeBtn);
+    }
+
+    const comsetBtn = findPlatformButton(/เพิ่มคอมเซ็ต/);
+    const hasRows = findPlatformSearchRowInputs().length > 0;
+    const existingRowBtn = document.getElementById("ihc-platform-reset-row-btn");
+    if (comsetBtn && comsetBtn.parentElement && hasRows) {
+      if (!existingRowBtn) {
+        const rowResetBtn = document.createElement("button");
+        rowResetBtn.id = "ihc-platform-reset-row-btn";
+        rowResetBtn.type = "button";
+        rowResetBtn.textContent = "🔄 รีเซ็ตรายการใหม่";
+        Object.assign(rowResetBtn.style, {
+          marginLeft: "6px",
+          padding: "8px 14px",
+          borderRadius: "8px",
+          border: "1px solid #dc2626",
+          background: "#fff",
+          color: "#dc2626",
+          font: "700 13px Arial,Tahoma,sans-serif",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "5px"
+        });
+        rowResetBtn.addEventListener("click", handleResetClick);
+        comsetBtn.parentElement.appendChild(rowResetBtn);
+      }
+    } else if (existingRowBtn && !hasRows) {
+      existingRowBtn.remove();
+    }
+  }
+
   function setPlatformInputValue(input, value, pressEnter = false) {
     if (!input) return;
     input.focus();
@@ -649,7 +805,7 @@
     return null;
   }
 
-  async function addPlatformCalculatorItem({ kind, title, diyUrl }) {
+  async function addPlatformCalculatorItem({ kind, title, diyUrl, resetFirst = false }) {
     if (isLoginPage()) {
       throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพทฟอมอีกครั้ง");
     }
@@ -663,6 +819,13 @@
       }
       return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต/i);
     }, 15000, "ไม่พบปุ่มเพิ่มสินค้าบนหน้าคำนวณราคาแพลตฟอร์ม");
+
+    if (resetFirst) {
+      const clearRes = await clearPlatformCalculatorItems();
+      if (!clearRes.cleared) {
+        return { ok: false, needsPageReload: true };
+      }
+    }
 
     if (kind === "diy") {
       if (!diyUrl) throw new Error("ไม่พบลิงก์สเป็ค DIY");
@@ -927,4 +1090,7 @@
       .then(() => showStatus(`โหลดสเปก "${val.toUpperCase()}" จากประวัติเรียบร้อยแล้ว`, false))
       .catch((error) => showStatus(error.message || "โหลดสเปกจากประวัติไม่สำเร็จ", true));
   }, true);
+
+  ensurePlatformCalculatorResetButton();
+  window.setInterval(ensurePlatformCalculatorResetButton, 700);
 })();
