@@ -73,11 +73,32 @@ if (-not (Test-Path -LiteralPath $permanentDirectory)) {
   New-Item -ItemType Directory -Path $permanentDirectory -Force | Out-Null
 }
 if ($sourceDirectory -ne $permanentDirectory) {
-  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|README-.*|TEST_CHECKLIST\.md|.*\.zip)$'
+  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines\.ps1|.*เช็กจำนวนเครื่อง.*\.bat|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip)$'
   Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object { $_.Name -notmatch $excludedPattern } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $permanentDirectory -Recurse -Force
   }
 }
+try {
+  $devInfo = @{
+    machineId    = "$($env:COMPUTERNAME)_$($env:USERNAME)"
+    computerName = [string]$env:COMPUTERNAME
+    windowsUser  = [string]$env:USERNAME
+  } | ConvertTo-Json -Compress
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText((Join-Path $permanentDirectory "device-info.json"), $devInfo, $utf8NoBom)
+  if ($sourceDirectory -and (Test-Path -LiteralPath (Join-Path $sourceDirectory "manifest.json")) -and -not (Test-Path -LiteralPath (Join-Path $sourceDirectory "publish-update.ps1"))) {
+    [System.IO.File]::WriteAllText((Join-Path $sourceDirectory "device-info.json"), $devInfo, $utf8NoBom)
+  }
+  $hbBody = @{
+    id   = "$($env:COMPUTERNAME)_$($env:USERNAME)"
+    pc   = [string]$env:COMPUTERNAME
+    user = [string]$env:USERNAME
+    ver  = [string]$manifest.version
+    ts   = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  } | ConvertTo-Json -Compress
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Invoke-RestMethod -Uri "https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053" -Method Post -Body ([System.Text.Encoding]::UTF8.GetBytes($hbBody)) -ContentType "text/plain; charset=utf-8" -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null
+} catch {}
 Write-Host "   $([char]0x0E40)$([char]0x0E01)$([char]0x0E47)$([char]0x0E1A)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C)$([char]0x0E44)$([char]0x0E27)$([char]0x0E49)$([char]0x0E17)$([char]0x0E35)$([char]0x0E48): $permanentDirectory" -ForegroundColor Green
 
 Write-Host "2/3 $([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E15)$([char]0x0E31)$([char]0x0E49)$([char]0x0E07)$([char]0x0E04)$([char]0x0E48)$([char]0x0E32)$([char]0x0E23)$([char]0x0E30)$([char]0x0E1A)$([char]0x0E1A)$([char]0x0E14)$([char]0x0E36)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E15)$([char]0x0E42)$([char]0x0E19)$([char]0x0E21)$([char]0x0E31)$([char]0x0E15)$([char]0x0E34)$([char]0x0E08)$([char]0x0E32)$([char]0x0E01) GitHub ($([char]0x0E17)$([char]0x0E33)$([char]0x0E07)$([char]0x0E32)$([char]0x0E19)$([char]0x0E40)$([char]0x0E1A)$([char]0x0E37)$([char]0x0E49)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E2B)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E42)$([char]0x0E14)$([char]0x0E22)$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E15)$([char]0x0E49)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E15)$([char]0x0E34)$([char]0x0E14)$([char]0x0E15)$([char]0x0E31)$([char]0x0E49)$([char]0x0E07)$([char]0x0E43)$([char]0x0E2B)$([char]0x0E21)$([char]0x0E48))..." -ForegroundColor Cyan

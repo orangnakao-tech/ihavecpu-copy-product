@@ -35,7 +35,16 @@ kbd{background:#f0f1f3;border:1px solid #ddd;border-radius:4px;padding:2px 5px}
 <body>
 <div class="header-row">
   <h1>iHAVECPU คัดลอกสินค้า + รูป</h1>
-  <span id="version-badge" class="ver-badge">v2.4.0</span>
+  <span id="version-badge" class="ver-badge" style="cursor:default;user-select:none">v2.4.0</span>
+</div>
+
+<div id="hidden-admin-diag" style="display:none;background:#1e293b;color:#f8fafc;padding:12px;border-radius:10px;margin-bottom:12px;font-size:12px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <strong style="color:#38bdf8;font-size:13px">📊 สถิติเครื่องที่ติดตั้งทั้งหมด</strong>
+    <button id="refresh-diag-btn" type="button" style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#0284c7;border-radius:4px">รีเฟรช</button>
+  </div>
+  <div id="diag-summary" style="margin-bottom:8px;color:#94a3b8">กำลังโหลดข้อมูล...</div>
+  <div id="diag-list" style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:5px"></div>
 </div>
 
 <div id="update-box" class="update-box">

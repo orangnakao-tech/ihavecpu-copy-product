@@ -1,6 +1,9 @@
 publish-update.ps1
 *GitHub*.bat
+check-machines.ps1
+*เช็กจำนวนเครื่อง*.bat
+device-info.json
+machines-cache.json
 README-*.txt
 TEST_CHECKLIST.md
 *.zip
-

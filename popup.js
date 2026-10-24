@@ -188,4 +188,73 @@ if (admetaSearchBtn) {
   admetaSearchBtn.addEventListener("click", runPopupAdmetaSearch);
 }
 
+let badgeClickCount = 0;
+let badgeClickTimer = null;
+const diagPanel = document.getElementById("hidden-admin-diag");
+const diagSummary = document.getElementById("diag-summary");
+const diagList = document.getElementById("diag-list");
+const refreshDiagBtn = document.getElementById("refresh-diag-btn");
+
+function timeAgo(ms) {
+  const diffSec = Math.floor((Date.now() - ms) / 1000);
+  if (diffSec < 60) return "เมื่อสักครู่";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} นาทีก่อน`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} ชม.ก่อน`;
+  return `${Math.floor(diffSec / 86400)} วันก่อน`;
+}
+
+function loadAndRenderDiag() {
+  if (!diagPanel || diagPanel.style.display === "none") return;
+  diagSummary.textContent = "กำลังเชื่อมต่อเช็กข้อมูลเครื่อง...";
+  chrome.runtime.sendMessage({ type: "FETCH_MACHINES_REGISTRY" }, (res) => {
+    if (!res?.ok || !Array.isArray(res.machines)) {
+      diagSummary.textContent = "ไม่สามารถดึงข้อมูลได้ (" + (res?.error || "network error") + ")";
+      return;
+    }
+    const machines = res.machines;
+    const now = Date.now();
+    const activeDay = machines.filter(m => (now - (m.ts || 0)) < 24 * 3600 * 1000).length;
+    diagSummary.innerHTML = `พบทั้งหมด <b>${machines.length} เครื่อง</b> (ใช้งานใน 24 ชม.: <b>${activeDay}</b> เครื่อง)`;
+    diagList.innerHTML = "";
+    if (machines.length === 0) {
+      diagList.innerHTML = "<div style='color:#64748b'>ยังไม่มีข้อมูลเครื่องส่งเข้ามา</div>";
+      return;
+    }
+    machines.forEach((m) => {
+      const item = document.createElement("div");
+      item.style.cssText = "background:#0f172a;padding:6px 8px;border-radius:6px;display:flex;justify-content:space-between;align-items:center";
+      const name = m.staff ? `<b>${m.staff}</b> ${m.branch ? `(${m.branch})` : ""}` : (m.pc || m.id || "เครื่องแอดมิน");
+      const sub = m.pc && m.staff ? `<div style='font-size:10px;color:#64748b'>${m.pc} • ${m.user || ""}</div>` : "";
+      item.innerHTML = `
+        <div>
+          <div style="color:#f1f5f9">${name}</div>
+          ${sub}
+        </div>
+        <div style="text-align:right">
+          <span style="background:${m.ver === chrome.runtime.getManifest().version ? '#15803d' : '#b45309'};color:#fff;padding:1px 5px;border-radius:4px;font-size:10px">v${m.ver || "?"}</span>
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px">${timeAgo(m.ts || 0)}</div>
+        </div>
+      `;
+      diagList.appendChild(item);
+    });
+  });
+}
+
+if (verBadgeEl) {
+  verBadgeEl.addEventListener("click", () => {
+    badgeClickCount++;
+    clearTimeout(badgeClickTimer);
+    badgeClickTimer = setTimeout(() => { badgeClickCount = 0; }, 2500);
+    if (badgeClickCount >= 5) {
+      badgeClickCount = 0;
+      if (diagPanel) {
+        const isHidden = diagPanel.style.display === "none";
+        diagPanel.style.display = isHidden ? "block" : "none";
+        if (isHidden) loadAndRenderDiag();
+      }
+    }
+  });
+}
+if (refreshDiagBtn) refreshDiagBtn.addEventListener("click", loadAndRenderDiag);
+
 load();

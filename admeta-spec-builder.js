@@ -5,6 +5,27 @@
   document.getElementById("ihavecpu-platform-calc-reset-inline")?.remove();
   document.getElementById("ihavecpu-update-notice")?.remove();
 
+  function detectSidebarStaffInfo() {
+    try {
+      const aside = document.querySelector("aside, nav, [class*='sidebar'], header");
+      if (!aside) return;
+      const textNodes = [...aside.querySelectorAll("span, p, div, strong, h4, h5, h6")]
+        .map(el => (el.textContent || "").trim())
+        .filter(t => t.length >= 3 && t.length <= 40 && !/(หน้าหลัก|การขาย|จัดสเปค|ใบเสนอราคา|คำนวณ|ตั้งค่า|ออกจากระบบ)/.test(t));
+      const staffLine = textNodes.find(t => /^[ก-๙a-zA-Z\s.]+$/.test(t) && t.includes(" "));
+      const branchLine = textNodes.find(t => /(สาขา|สำนักงานใหญ่|นครนายก|กทม|รามอินทรา|บางนา|รังสิต)/i.test(t));
+      if (staffLine) {
+        chrome.runtime.sendMessage({
+          type: "SYNC_STAFF_INFO",
+          staff: staffLine,
+          branch: branchLine || ""
+        }).catch(() => {});
+      }
+    } catch {}
+  }
+  setTimeout(detectSidebarStaffInfo, 2000);
+  setTimeout(detectSidebarStaffInfo, 8000);
+
   const ADMETA_SELECTORS = {
     customerMessage: [
       '.card[title="คลิกเพื่อก๊อบปี้ข้อความ"] textarea[readonly]',

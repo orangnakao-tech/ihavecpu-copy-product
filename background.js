@@ -1662,4 +1662,90 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
+  if (message?.type === "SYNC_STAFF_INFO") {
+    (async () => {
+      try {
+        const { staff, branch } = message;
+        if (staff) {
+          await chrome.storage.local.set({ cachedStaffName: staff, cachedStaffBranch: branch || "" });
+          sendMachineHeartbeat(false);
+        }
+      } catch {}
+    })();
+    return false;
+  }
+  if (message?.type === "FETCH_MACHINES_REGISTRY") {
+    (async () => {
+      try {
+        const res = await fetch("https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053/json?poll=1&since=all", { cache: "no-store" });
+        const text = await res.text();
+        const lines = text.trim().split("\n");
+        const { knownMachines = {} } = await chrome.storage.local.get({ knownMachines: {} });
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const rawEvent = JSON.parse(line);
+            if (rawEvent.event === "message" && rawEvent.message) {
+              const data = JSON.parse(rawEvent.message);
+              if (data && data.id) {
+                const prev = knownMachines[data.id];
+                if (!prev || (data.ts || 0) >= (prev.ts || 0)) {
+                  knownMachines[data.id] = { ...prev, ...data };
+                }
+              }
+            }
+          } catch {}
+        }
+        await chrome.storage.local.set({ knownMachines });
+        const list = Object.values(knownMachines).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        sendResponse({ ok: true, machines: list });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
 });
+
+let lastHeartbeatSentAt = 0;
+async function sendMachineHeartbeat(force = false) {
+  const now = Date.now();
+  if (!force && now - lastHeartbeatSentAt < 25 * 60 * 1000) return;
+  lastHeartbeatSentAt = now;
+  try {
+    let deviceInfo = null;
+    try {
+      const devRes = await fetch(chrome.runtime.getURL("device-info.json"), { cache: "no-store" });
+      if (devRes.ok) deviceInfo = await devRes.json();
+    } catch {}
+
+    const { machineUid = "", cachedStaffName = "", cachedStaffBranch = "" } = await chrome.storage.local.get({
+      machineUid: "",
+      cachedStaffName: "",
+      cachedStaffBranch: ""
+    });
+    let finalId = deviceInfo?.machineId || machineUid;
+    if (!finalId) {
+      finalId = "PC_" + Math.random().toString(36).substring(2, 10).toUpperCase();
+      await chrome.storage.local.set({ machineUid: finalId });
+    }
+
+    const payload = {
+      id: finalId,
+      pc: deviceInfo?.computerName || "",
+      user: deviceInfo?.windowsUser || "",
+      staff: cachedStaffName,
+      branch: cachedStaffBranch,
+      ver: chrome.runtime.getManifest().version,
+      ts: now
+    };
+
+    await fetch("https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "text/plain; charset=utf-8" }
+    });
+  } catch {}
+}
+
+setTimeout(() => sendMachineHeartbeat(true), 4000);
