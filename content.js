@@ -212,16 +212,18 @@
     const base = lines.filter(Boolean).join("\n");
 
     const numericPrice = parsePriceNumber(product.price);
-    if (!Number.isFinite(numericPrice) || numericPrice <= 0 || numericPrice >= 5000) {
-      return base;
+    let result = base;
+    if (Number.isFinite(numericPrice) && numericPrice > 0 && numericPrice < 5000) {
+      const total = numericPrice + 50;
+      const hasComma = String(product.price || "").includes(",");
+      const totalStr = Number.isInteger(total)
+        ? (hasComma ? total.toLocaleString("en-US") : String(total))
+        : (hasComma ? total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : total.toFixed(2));
+      result = `${base}\n\n+50.- ค่าส่ง\n\n= ${totalStr}.-`;
     }
 
-    const total = numericPrice + 50;
-    const hasComma = String(product.price || "").includes(",");
-    const totalStr = Number.isInteger(total)
-      ? (hasComma ? total.toLocaleString("en-US") : String(total))
-      : (hasComma ? total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : total.toFixed(2));
-    return `${base}\n\n+50.- ค่าส่ง\n\n= ${totalStr}.-`;
+    const linkUrl = product.url || location.href.split("#")[0];
+    return linkUrl ? `${result}\n\nลิงก์สินค้า: ${linkUrl}` : result;
   }
 
   function extractDIYPrice() {
