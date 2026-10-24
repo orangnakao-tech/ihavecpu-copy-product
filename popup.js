@@ -82,7 +82,9 @@ function runPopupAdmetaSearch() {
   statusEl.textContent = `กำลังเปิดและค้นหา "${normalized}" ใน AdMeta...`;
   chrome.runtime.sendMessage({ type: "SEARCH_ADMETA_SPEC", searchTerm: normalized }, (res) => {
     if (res?.ok) {
-      statusEl.textContent = `ค้นหา "${normalized}" ใน AdMeta แล้ว`;
+      statusEl.textContent = res.loadedFromHistory
+        ? `เปิดประวัติและโหลดสเปก "${res.searchTerm || normalized}" ใน AdMeta แล้ว`
+        : `ค้นหา "${normalized}" ใน AdMeta แล้ว`;
     } else {
       statusEl.textContent = res?.error || "ค้นหาใน AdMeta ไม่สำเร็จ";
     }

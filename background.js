@@ -420,7 +420,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((result) => {
         sendResponse(result);
         if (sender.tab?.id) {
-          showTabStatus(sender.tab.id, `ค้นหา "${message.searchTerm}" ใน AdMeta แล้ว`);
+          const msgText = result?.loadedFromHistory
+            ? `เปิดประวัติและโหลดสเปก "${result.searchTerm || message.searchTerm}" ใน AdMeta แล้ว`
+            : `ค้นหา "${message.searchTerm}" ใน AdMeta แล้ว`;
+          showTabStatus(sender.tab.id, msgText);
         }
       })
       .catch((error) => {
@@ -904,8 +907,14 @@ async function searchSpecInAdmetaTab(searchTerm) {
     throw new Error(errorMessage);
   }
 
-  await showTabStatus(readyAdmetaTab.id, `ค้นหา "${searchTerm.trim()}" ใน AdMeta แล้ว — เลือกสเปกที่ต้องการได้เลย`);
-  return { ok: true, searchTerm: searchTerm.trim() };
+  const finalTerm = result.searchTerm || searchTerm.trim();
+  if (result.loadedFromHistory) {
+    await showTabStatus(readyAdmetaTab.id, `ค้นหาและโหลดสเปก "${finalTerm}" จากประวัติใน AdMeta เรียบร้อยแล้ว`);
+    return { ok: true, searchTerm: finalTerm, loadedFromHistory: true };
+  }
+
+  await showTabStatus(readyAdmetaTab.id, `ค้นหา "${finalTerm}" ใน AdMeta แล้ว — เลือกสเปกที่ต้องการได้เลย`);
+  return { ok: true, searchTerm: finalTerm, loadedFromHistory: false };
 }
 
 async function getProductData(tabId) {

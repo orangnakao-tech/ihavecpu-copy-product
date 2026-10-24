@@ -91,13 +91,83 @@
     });
     if (matched) return matched;
 
-    // 3. Fallback: First text input on the page excluding accessories input ("พัดลม, เมาส์, หูฟัง")
+    // 3. Fallback: First text input on the page excluding accessories input ("พัดลม, เมาส์, หูฟัง") and history modal input
     const firstBuilderInput = allInputs.find((input) => {
       const ph = input.placeholder || "";
-      return !/พัดลม|เมาส์|หูฟัง|สต็อก/i.test(ph);
+      return !/พัดลม|เมาส์|หูฟัง|สต็อก|เลขที่สเปก|โทเค็นแชร์/i.test(ph);
     });
     if (firstBuilderInput) return firstBuilderInput;
 
+    return null;
+  }
+
+  function findHistoryButton() {
+    const candidates = [...document.querySelectorAll("button, [role='button'], a")].filter((el) => {
+      if (!el || el.disabled) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+      return text === "ประวัติ" || /^ประวัติ(?:\s|$)/.test(text);
+    });
+    return candidates[0] || null;
+  }
+
+  function findHistorySearchInput() {
+    const selectors = [
+      'input[placeholder*="เลขที่สเปก"]',
+      'input[placeholder*="โทเค็นแชร์"]',
+      'input[placeholder*="ชื่อลูกค้า"]'
+    ];
+    for (const sel of selectors) {
+      const match = [...document.querySelectorAll(sel)].find(isVisibleInput);
+      if (match) return match;
+    }
+    const modals = [...document.querySelectorAll(".modal, [role='dialog'], [class*='modal'], div")]
+      .filter((el) => {
+        if (!el || el.children.length === 0) return false;
+        const style = window.getComputedStyle(el);
+        return style.display !== "none" && style.visibility !== "hidden" && (el.innerText || "").includes("ประวัติการจัดสเปก");
+      });
+    for (const modal of modals) {
+      const inp = [...modal.querySelectorAll("input")].find(isVisibleInput);
+      if (inp) return inp;
+    }
+    return null;
+  }
+
+  function findHistorySearchSubmitButton(historyInput) {
+    let container = historyInput?.parentElement;
+    while (container && container !== document.body) {
+      const buttons = [...container.querySelectorAll("button, [role='button']")].filter((btn) => {
+        if (!btn || btn.disabled) return false;
+        const style = window.getComputedStyle(btn);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+        const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+        return text === "ค้นหา";
+      });
+      if (buttons.length > 0) return buttons[0];
+      container = container.parentElement;
+    }
+    return null;
+  }
+
+  function findHistoryLoadButton(specCode) {
+    const upperCode = specCode.trim().toUpperCase();
+    const rows = [...document.querySelectorAll("tr")].filter((row) => {
+      const style = window.getComputedStyle(row);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      return (row.innerText || "").toUpperCase().includes(upperCode);
+    });
+    for (const row of rows) {
+      const loadBtn = [...row.querySelectorAll("button, [role='button'], a")].find((btn) => {
+        if (!btn || btn.disabled) return false;
+        const style = window.getComputedStyle(btn);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+        const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+        return text === "โหลด" || /โหลด/.test(text);
+      });
+      if (loadBtn) return loadBtn;
+    }
     return null;
   }
 
@@ -403,6 +473,62 @@
     return { ok: true, setName: selectedSet };
   }
 
+  const SB_HISTORY_CODE_REGEX = /^SB-\d{4}-\d{3,8}$/i;
+
+  async function loadSpecFromHistory(specCode) {
+    const code = specCode.trim().toUpperCase();
+
+    if (!findHistorySearchInput()) {
+      const historyBtn = await waitFor(() => {
+        if (isLoginPage()) {
+          throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองค้นหาสเป็คอีกครั้ง");
+        }
+        return findHistoryButton();
+      }, 15000, "ไม่พบปุ่ม 'ประวัติ' บนหน้า AdMeta Spec Builder V2");
+      historyBtn.click();
+    }
+
+    const historyInput = await waitFor(
+      findHistorySearchInput,
+      10000,
+      "เปิดหน้าต่างประวัติการจัดสเปกแล้วแต่ไม่พบช่องค้นหาเลขที่สเปก"
+    );
+
+    setReactInputValue(historyInput, code);
+    const submitBtn = findHistorySearchSubmitButton(historyInput);
+    if (submitBtn) {
+      setTimeout(() => submitBtn.click(), 80);
+    }
+
+    const searchStartedAt = Date.now();
+    let retriedHistorySearch = false;
+
+    const loadBtn = await waitFor(() => {
+      const foundBtn = findHistoryLoadButton(code);
+      if (foundBtn) return foundBtn;
+      if (!retriedHistorySearch && Date.now() - searchStartedAt >= 2500) {
+        const currentInput = findHistorySearchInput();
+        if (currentInput) {
+          retriedHistorySearch = true;
+          setReactInputValue(currentInput, code);
+          const btn = findHistorySearchSubmitButton(currentInput);
+          if (btn) btn.click();
+        }
+      }
+      return null;
+    }, 15000, `ไม่พบเลขที่สเปก "${code}" ในประวัติการจัดสเปก`);
+
+    loadBtn.click();
+
+    setTimeout(() => {
+      const confirmBtn = [...document.querySelectorAll(".swal2-confirm, .modal button, [role='dialog'] button")]
+        .find((btn) => /(?:ยืนยัน|ตกลง|ใช่|โหลด|ok|confirm)/i.test(btn.innerText || btn.textContent || ""));
+      if (confirmBtn && confirmBtn !== loadBtn) confirmBtn.click();
+    }, 300);
+
+    return { ok: true, searchTerm: code, loadedFromHistory: true };
+  }
+
   async function searchSpecInBuilder(searchTerm) {
     if (isLoginPage()) throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองค้นหาสเป็คอีกครั้ง");
     if (location.hostname !== "admeta.me" ||
@@ -411,6 +537,11 @@
     }
     if (typeof searchTerm !== "string" || !searchTerm.trim() || searchTerm.length > 300) {
       throw new Error("ไม่พบคำค้นหาสำหรับค้นหาใน AdMeta");
+    }
+
+    const cleanTerm = searchTerm.trim();
+    if (SB_HISTORY_CODE_REGEX.test(cleanTerm)) {
+      return await loadSpecFromHistory(cleanTerm);
     }
 
     const hadExistingSet = !/^\/admin\/spec-builder-v2\/?$/.test(location.pathname) ||
@@ -426,7 +557,6 @@
       return findMainBuilderSearchInput();
     }, 20000, "ไม่พบช่องค้นหาสเป็คใน AdMeta กรุณาเปิดหน้า Spec Builder V2");
 
-    const cleanTerm = searchTerm.trim();
     try {
       searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {}
@@ -576,4 +706,28 @@
       .catch((error) => sendResponse({ ok: false, error: error.message || "เปิดเซ็ตโปรใน AdMeta ไม่สำเร็จ" }));
     return true;
   });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const target = event.target;
+    if (!target || target.tagName !== "INPUT") return;
+    const historyInput = findHistorySearchInput();
+    if (historyInput && target === historyInput) return;
+    const mainInput = findMainBuilderSearchInput();
+    if (!mainInput || target !== mainInput) return;
+    const val = (target.value || "").trim();
+    if (!SB_HISTORY_CODE_REGEX.test(val)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (valueSetter) {
+      valueSetter.call(target, "");
+      target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
+    }
+    showStatus(`กำลังเปิดประวัติและโหลดสเปก "${val.toUpperCase()}"...`, false);
+    loadSpecFromHistory(val)
+      .then(() => showStatus(`โหลดสเปก "${val.toUpperCase()}" จากประวัติเรียบร้อยแล้ว`, false))
+      .catch((error) => showStatus(error.message || "โหลดสเปกจากประวัติไม่สำเร็จ", true));
+  }, true);
 })();

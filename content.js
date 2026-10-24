@@ -291,7 +291,11 @@
       searchTerm: normalizedQuery
     });
     if (!result?.ok) throw new Error(result?.error || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ");
-    showToast(`ค้นหา "${normalizedQuery}" ในหน้า AdMeta แล้ว`);
+    showToast(
+      result.loadedFromHistory
+        ? `เปิดประวัติและโหลดสเปก "${result.searchTerm || normalizedQuery}" ในหน้า AdMeta แล้ว`
+        : `ค้นหา "${normalizedQuery}" ในหน้า AdMeta แล้ว`
+    );
   }
 
   async function fillZaapi(product) {
