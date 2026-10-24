@@ -931,9 +931,10 @@
     } catch {}
 
     const defaultNotes = [
-      "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบนสำหรับคัดลอกไปใช้แพลตฟอร์มอื่น",
-      "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ",
-      "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท"
+      "+ โหมดแพทฟอม (สีส้ม) คำนวณราคา + รีเซ็ตรายการเก่า",
+      "+ ปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",
+      "+ ค้นหารหัส SB-xxxx-xxxxx โหลดประวัติทันที",
+      "+ แก้บัครูป UPS & สินค้าลดราคา / ซ่อนปุ่มหน้าค้นหา"
     ];
     const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
       ? status.releaseNotes
@@ -948,24 +949,27 @@
         right: "18px",
         top: "18px",
         zIndex: "2147483647",
-        width: "350px",
+        width: "340px",
         maxWidth: "calc(100vw - 28px)",
-        background: "#fff",
+        background: "linear-gradient(135deg, #fff8f6 0%, #ffffff 100%)",
         border: "2px solid #d71920",
         borderRadius: "12px",
         boxShadow: "0 6px 24px rgba(0,0,0,.25)",
         padding: "12px 14px",
-        font: "13px/1.5 Arial,Tahoma,sans-serif",
+        font: "13px/1.45 Arial,Tahoma,sans-serif",
         color: "#222"
       });
       box.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-          <strong style="color:#202124;font-size:14px;">ver.<span class="ihc-update-ver"></span> อัพเดทใหม่<span style="color:#d71920;font-weight:900;margin-left:2px;">!!!</span></strong>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;">
+          <strong style="color:#202124;font-size:13.5px;display:flex;align-items:center;gap:5px;">
+            <span style="background:#d71920;color:#fff;padding:1px 8px;border-radius:10px;font-size:12px;">ver.<span class="ihc-update-ver"></span></span>
+            <span>อัพเดทใหม่<span style="color:#d71920;font-weight:900;margin-left:1px;">!!!</span></span>
+          </strong>
           <button type="button" data-update-close="1" aria-label="ปิดข้อความ" title="ปิดข้อความ" style="border:0;background:#f2f4f7;color:#333;width:26px;height:26px;border-radius:6px;cursor:pointer;font:700 16px/1 Arial,sans-serif;display:flex;align-items:center;justify-content:center;">×</button>
         </div>
-        <div class="ihc-update-notes" style="margin-bottom:8px;padding:6px 8px;background:#f8f9fa;border-radius:7px;font-size:12px;color:#333;"></div>
-        <div class="ihc-update-msg" style="margin-bottom:10px;color:#555;font-size:12px;">
-          กรุณาไปกดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยายของ Chrome เพื่อใช้งานเวอร์ชันใหม่
+        <div class="ihc-update-notes" style="margin-bottom:8px;display:flex;flex-direction:column;gap:4px;font-size:12px;"></div>
+        <div class="ihc-update-msg" style="margin-bottom:9px;color:#555;font-size:11.5px;">
+          กดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยาย Chrome เพื่อใช้เวอร์ชันใหม่
         </div>
         <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;background:#d71920;color:#fff;text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;">
           ไปที่หน้าส่วนขยาย (chrome://extensions/)
@@ -993,14 +997,49 @@
     if (verSpan) verSpan.textContent = String(targetVersion).replace(/^v/i, "");
     const notesContainer = box.querySelector(".ihc-update-notes");
     if (notesContainer) {
+      const palette = [
+        { bg: "#fff7ed", text: "#c2410c", badge: "#ea580c" },
+        { bg: "#eff6ff", text: "#1d4ed8", badge: "#2563eb" },
+        { bg: "#f0fdf4", text: "#15803d", badge: "#16a34a" },
+        { bg: "#faf5ff", text: "#6d28d9", badge: "#7c3aed" }
+      ];
       notesContainer.innerHTML = "";
-      for (const note of notesList) {
-        const line = String(note || "").trim();
-        if (!line) continue;
-        const itemEl = document.createElement("div");
-        itemEl.textContent = line.startsWith("+") ? line : `+${line}`;
-        notesContainer.appendChild(itemEl);
-      }
+      notesList.forEach((note, idx) => {
+        const cleanText = String(note || "").trim().replace(/^\+\s*(?:อัพเดท)?/i, "").trim();
+        if (!cleanText) return;
+        const p = palette[idx % palette.length];
+        const row = document.createElement("div");
+        Object.assign(row.style, {
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "4px 8px",
+          borderRadius: "6px",
+          background: p.bg,
+          color: p.text,
+          fontWeight: "700"
+        });
+        const badge = document.createElement("span");
+        Object.assign(badge.style, {
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "16px",
+          height: "16px",
+          borderRadius: "50%",
+          background: p.badge,
+          color: "#fff",
+          fontWeight: "900",
+          fontSize: "11px",
+          flexShrink: "0"
+        });
+        badge.textContent = "+";
+        const span = document.createElement("span");
+        span.textContent = cleanText;
+        row.appendChild(badge);
+        row.appendChild(span);
+        notesContainer.appendChild(row);
+      });
     }
   }
 

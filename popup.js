@@ -7,10 +7,17 @@ const releaseNotesVerEl = document.getElementById("release-notes-ver");
 const releaseNotesItemsEl = document.getElementById("release-notes-items");
 
 const DEFAULT_RELEASE_NOTES = [
-  "+อัพเดทปุ่ม คำนวณพร้อมรีเซ็ตรายการเก่าออก (โหมดแพทฟอม) และปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",
-  "+อัพเดทปุ่มโหมดแพทฟอม คำนวณราคาสินค้าแพทฟอม (เพิ่มสินค้าปกติ / เซ็ต DIY / คอมเซ็ต อัตโนมัติ)",
-  "+อัพเดทแก้ไขบัครูปสินค้า UPS / สินค้าลดราคา และซ่อนปุ่มเมื่ออยู่ในหน้าค้นหาสินค้า",
-  "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ"
+  "+ โหมดแพทฟอม (สีส้ม) คำนวณราคา + รีเซ็ตรายการเก่า",
+  "+ ปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",
+  "+ ค้นหารหัส SB-xxxx-xxxxx โหลดประวัติทันที",
+  "+ แก้บัครูป UPS & สินค้าลดราคา / ซ่อนปุ่มหน้าค้นหา"
+];
+
+const NOTE_PALETTE = [
+  { bg: "#fff7ed", text: "#c2410c", badge: "#ea580c" },
+  { bg: "#eff6ff", text: "#1d4ed8", badge: "#2563eb" },
+  { bg: "#f0fdf4", text: "#15803d", badge: "#16a34a" },
+  { bg: "#faf5ff", text: "#6d28d9", badge: "#7c3aed" }
 ];
 
 function renderReleaseNotes(versionStr, notes) {
@@ -20,13 +27,24 @@ function renderReleaseNotes(versionStr, notes) {
   if (!releaseNotesItemsEl) return;
   const list = Array.isArray(notes) && notes.length > 0 ? notes : DEFAULT_RELEASE_NOTES;
   releaseNotesItemsEl.innerHTML = "";
-  for (const item of list) {
-    const line = String(item || "").trim();
-    if (!line) continue;
-    const div = document.createElement("div");
-    div.textContent = line.startsWith("+") ? line : `+${line}`;
-    releaseNotesItemsEl.appendChild(div);
-  }
+  list.forEach((item, idx) => {
+    const cleanText = String(item || "").trim().replace(/^\+\s*(?:อัพเดท)?/i, "").trim();
+    if (!cleanText) return;
+    const palette = NOTE_PALETTE[idx % NOTE_PALETTE.length];
+    const row = document.createElement("div");
+    row.className = "release-note-row";
+    row.style.background = palette.bg;
+    row.style.color = palette.text;
+    const plusBadge = document.createElement("span");
+    plusBadge.className = "release-note-plus";
+    plusBadge.style.background = palette.badge;
+    plusBadge.textContent = "+";
+    const textSpan = document.createElement("span");
+    textSpan.textContent = cleanText;
+    row.appendChild(plusBadge);
+    row.appendChild(textSpan);
+    releaseNotesItemsEl.appendChild(row);
+  });
 }
 
 function renderUpdateStatus(status) {
