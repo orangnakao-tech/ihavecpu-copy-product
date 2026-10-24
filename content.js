@@ -226,6 +226,17 @@
     return linkUrl ? `${result}\n\nลิงก์สินค้า: ${linkUrl}` : result;
   }
 
+  function formatAddProductText(product) {
+    const numericPrice = parsePriceNumber(product.price);
+    let pricePart = String(product.price || "").replace(/^[฿+\s]+/, "").replace(/\s*บาท$/, "").trim();
+    if (Number.isFinite(numericPrice) && numericPrice > 0) {
+      pricePart = Number.isInteger(numericPrice)
+        ? numericPrice.toLocaleString("en-US")
+        : numericPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return `+${pricePart} ${(product.title || "").trim()}`;
+  }
+
   function extractDIYPrice() {
     const labels = [...document.querySelectorAll("body *")]
       .filter((el) => el.children.length === 0 && /ยอดรวมสุทธิ\s*:?\s*/.test(el.innerText || ""));
@@ -505,8 +516,8 @@
       }
 
       if (kind === "text") {
-        await copyText(formatProductText(product));
-        showToast("คัดลอกข้อความสินค้าแล้ว");
+        await copyText(formatAddProductText(product));
+        showToast("คัดลอกข้อความเพื่อเพิ่มสินค้าแล้ว");
       } else if (kind === "platform-product") {
         await copyText(formatProductText(product));
         showToast("คัดลอกข้อความสินค้าสำหรับแพทฟอมแล้ว (ไม่ส่งเข้า Zaapi)");
@@ -543,6 +554,7 @@
     } catch {}
 
     const defaultNotes = [
+      "+อัพเดทปุ่ม คัดลอกเพื่อเพิ่มสินค้า (+ราคา ชื่อสินค้า) สำหรับเพิ่มรายการสินค้า",
       "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบนสำหรับคัดลอกไปใช้แพลตฟอร์มอื่น",
       "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ",
       "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท"
@@ -626,8 +638,8 @@
     if (!hasProduct) return "";
     const promoBtn = isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : "";
     return isPlatform
-      ? `${promoBtn}<button data-action="platform-product">คัดลอกข้อความสินค้า (โหมดแพทฟอม)</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`
-      : `${promoBtn}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกข้อความอย่างเดียว</button>`;
+      ? `${promoBtn}<button data-action="platform-product">คัดลอกข้อความสินค้า (โหมดแพทฟอม)</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`
+      : `${promoBtn}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`;
   }
 
   function applyPlatformThemeToWrap(wrap, launcher, platformMode) {

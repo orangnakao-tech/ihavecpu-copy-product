@@ -7,10 +7,10 @@ const releaseNotesVerEl = document.getElementById("release-notes-ver");
 const releaseNotesItemsEl = document.getElementById("release-notes-items");
 
 const DEFAULT_RELEASE_NOTES = [
+  "+อัพเดทปุ่ม คัดลอกเพื่อเพิ่มสินค้า (+ราคา ชื่อสินค้า) สำหรับเพิ่มรายการสินค้า",
   "+อัพเดทเพิ่มปุ่มสลับโหมด แพทฟอม (ธีมสีส้ม) มุมขวาบนสำหรับคัดลอกไปใช้แพลตฟอร์มอื่น",
   "+อัพเดทการค้นหาประวัติการจัดสเป็ค (SB-xxxx-xxxxx) ที่ช่องค้นหาแล้วกดโหลดอัตโนมัติ",
-  "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท",
-  "+อัพเดทเปลี่ยนแจ้งเตือนในหน้า Zaapi เป็นจุดวงกลมสีเขียวไม่บังแชต"
+  "+อัพเดทคำนวณค่าส่ง +50.- อัตโนมัติสำหรับสินค้าต่ำกว่า 5,000 บาท"
 ];
 
 function renderReleaseNotes(versionStr, notes) {
