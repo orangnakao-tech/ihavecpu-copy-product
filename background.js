@@ -465,11 +465,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "RECORD_USER_ACTION") {
+    recordUsageAction(message.action || "คลิกใช้งาน", message.details || "");
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message?.type === "PREPARE_ADMETA_COPY_ONLY") {
     if (!/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(sender.url || "")) {
       sendResponse({ error: "คำขอคำนวณสเป็ค DIY มาจากหน้าที่ไม่ได้รับอนุญาต" });
       return;
     }
+    recordUsageAction("คัดลอกสเป็ค DIY (AdMeta)");
     runWithAutoResetRetry(sender.tab?.id, () => prepareAdmetaCopyOnly(sender.tab?.id))
       .then((result) => {
         sendResponse(result);
@@ -486,6 +493,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: "คำขอคำนวณสเป็ค DIY มาจากหน้าที่ไม่ได้รับอนุญาต" });
       return;
     }
+    recordUsageAction("คำนวณสเป็คใน AdMeta");
     runWithAutoResetRetry(sender.tab?.id, () => prepareAdmetaZaapi(sender.tab?.id))
       .then((result) => {
         sendResponse(result);
@@ -511,6 +519,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: "คำขอเปิดเซ็ตโปรมาจากหน้าที่ไม่ได้รับอนุญาต" });
       return;
     }
+    recordUsageAction("เปิดเซ็ตโปรใน AdMeta");
     runWithAutoResetRetry(sender.tab?.id, () => openPromoSetForUpgrade(message.searchTerm))
       .then((result) => {
         sendResponse(result);
@@ -530,6 +539,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: "คำขอเปิดหน้าคำนวณราคาแพลตฟอร์มมาจากหน้าที่ไม่ได้รับอนุญาต" });
       return;
     }
+    recordUsageAction("เปิดคำนวณราคาแพลตฟอร์ม");
     openAndAddPlatformCalculatorItem({
       kind: message.kind,
       title: message.title || "",
@@ -549,6 +559,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "SEARCH_ADMETA_SPEC") {
+    recordUsageAction("ค้นหาสเป็คใน AdMeta");
     runWithAutoResetRetry(sender.tab?.id, () => searchSpecInAdmetaTab(message.searchTerm))
       .then((result) => {
         sendResponse(result);
@@ -573,6 +584,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ error: "คำขอส่งข้อความสเป็ค DIY มาจากหน้าที่ไม่ได้รับอนุญาต" });
       return;
     }
+    recordUsageAction("ใส่ราคาและลิงก์ DIY ใน Zaapi");
     runWithAutoResetRetry(sender.tab?.id, () => prepareZaapiText(message.text))
       .then((result) => {
         sendResponse(result);
@@ -604,6 +616,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ error: "คำขอทำงานกับ Zaapi มาจากเว็บไซต์ที่ไม่ได้รับอนุญาต" });
     return;
   }
+  recordUsageAction("คัดลอกสินค้าพร้อมรูป");
 
   runWithAutoResetRetry(sender.tab?.id, async (isRetry) => {
     const payload = isRetry && sender.tab?.id ? await getProductData(sender.tab.id).catch(() => message) : message;
@@ -1289,6 +1302,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 
   if (command === "copy-product") {
     if (!/^https:\/\/(www\.)?ihavecpu\.com\//i.test(tab.url || "")) return;
+    recordUsageAction("คีย์ลัด copy-product");
     try {
       await runWithAutoResetRetry(tab.id, async () => {
         await prepareZaapiProduct(await getProductData(tab.id));
@@ -1300,6 +1314,7 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (command !== "fill-zaapi-message") return;
+  recordUsageAction("คีย์ลัด fill-zaapi-message");
   try {
     if (/^https:\/\/(www\.)?ihavecpu\.com\//i.test(tab.url || "")) {
       await runWithAutoResetRetry(tab.id, async () => {
@@ -1496,6 +1511,10 @@ async function reinjectContentScriptsIntoOpenTabs() {
 
 async function broadcastUpdateNotice(statusObj) {
   try {
+    const config = await getUpdateConfig();
+    if (config.silentUpdate || statusObj?.silentUpdate) {
+      return;
+    }
     const tabs = await chrome.tabs.query({ url: MATCHING_URL_PATTERNS });
     for (const tab of tabs) {
       if (tab?.id) {
@@ -1580,7 +1599,7 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {})
     }
   }
 
-  if (diskNeedsReload || remoteHasNewer) {
+  if (!config.silentUpdate && (diskNeedsReload || remoteHasNewer)) {
     await chrome.action.setBadgeText({ text: "NEW" });
     await chrome.action.setBadgeBackgroundColor({ color: "#d71920" });
   } else {
@@ -1597,6 +1616,7 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {})
     githubOwner: config.githubOwner,
     githubRepo: config.githubRepo,
     branch: config.branch,
+    silentUpdate: Boolean(config.silentUpdate),
     releaseNotes: finalReleaseNotes
   };
   await chrome.storage.local.set({ updateStatus: statusObj });
@@ -1688,10 +1708,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (rawEvent.event === "message" && rawEvent.message) {
               const data = JSON.parse(rawEvent.message);
               if (data && data.id) {
-                const prev = knownMachines[data.id];
-                if (!prev || (data.ts || 0) >= (prev.ts || 0)) {
-                  knownMachines[data.id] = { ...prev, ...data };
-                }
+                const prev = knownMachines[data.id] || {};
+                const merged = { ...prev, ...data };
+                if (!data.staff && prev?.staff) merged.staff = prev.staff;
+                if (!data.branch && prev?.branch) merged.branch = prev.branch;
+                if (!data.pc && prev?.pc) merged.pc = prev.pc;
+                if (!data.user && prev?.user) merged.user = prev.user;
+                if (data.totalClicks === undefined && prev?.totalClicks !== undefined) merged.totalClicks = prev.totalClicks;
+                if (data.todayClicks === undefined && prev?.todayClicks !== undefined) merged.todayClicks = prev.todayClicks;
+                if (!data.lastAction && prev?.lastAction) merged.lastAction = prev.lastAction;
+                if (!data.lastActionTs && prev?.lastActionTs) merged.lastActionTs = prev.lastActionTs;
+                knownMachines[data.id] = merged;
               }
             }
           } catch {}
@@ -1708,9 +1735,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 let lastHeartbeatSentAt = 0;
+let heartbeatDebounceTimer = null;
+
+function debounceSendHeartbeat(delayMs = 3500) {
+  if (heartbeatDebounceTimer) clearTimeout(heartbeatDebounceTimer);
+  heartbeatDebounceTimer = setTimeout(() => {
+    sendMachineHeartbeat(true);
+  }, delayMs);
+}
+
+async function recordUsageAction(actionName, details = "") {
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const {
+      totalClicks = 0,
+      todayClicks = 0,
+      todayDate = todayStr,
+      actionsBreakdown = {}
+    } = await chrome.storage.local.get({
+      totalClicks: 0,
+      todayClicks: 0,
+      todayDate: todayStr,
+      actionsBreakdown: {}
+    });
+
+    const isSameDay = todayDate === todayStr;
+    const newTotal = totalClicks + 1;
+    const newToday = (isSameDay ? todayClicks : 0) + 1;
+    const newActions = { ...actionsBreakdown };
+    newActions[actionName] = (newActions[actionName] || 0) + 1;
+
+    await chrome.storage.local.set({
+      totalClicks: newTotal,
+      todayClicks: newToday,
+      todayDate: todayStr,
+      lastAction: actionName,
+      lastActionTs: Date.now(),
+      actionsBreakdown: newActions
+    });
+
+    debounceSendHeartbeat(3000);
+  } catch (err) {
+    console.warn("recordUsageAction error:", err);
+  }
+}
+
 async function sendMachineHeartbeat(force = false) {
   const now = Date.now();
-  if (!force && now - lastHeartbeatSentAt < 25 * 60 * 1000) return;
+  if (!force && now - lastHeartbeatSentAt < 5 * 60 * 1000) return;
   lastHeartbeatSentAt = now;
   try {
     let deviceInfo = null;
@@ -1719,11 +1791,31 @@ async function sendMachineHeartbeat(force = false) {
       if (devRes.ok) deviceInfo = await devRes.json();
     } catch {}
 
-    const { machineUid = "", cachedStaffName = "", cachedStaffBranch = "" } = await chrome.storage.local.get({
+    const {
+      machineUid = "",
+      cachedStaffName = "",
+      cachedStaffBranch = "",
+      totalClicks = 0,
+      todayClicks = 0,
+      todayDate = "",
+      lastAction = "",
+      lastActionTs = 0,
+      actionsBreakdown = {}
+    } = await chrome.storage.local.get({
       machineUid: "",
       cachedStaffName: "",
-      cachedStaffBranch: ""
+      cachedStaffBranch: "",
+      totalClicks: 0,
+      todayClicks: 0,
+      todayDate: "",
+      lastAction: "",
+      lastActionTs: 0,
+      actionsBreakdown: {}
     });
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const currentTodayClicks = todayDate === todayStr ? todayClicks : 0;
+
     let finalId = deviceInfo?.machineId || machineUid;
     if (!finalId) {
       finalId = "PC_" + Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -1737,7 +1829,12 @@ async function sendMachineHeartbeat(force = false) {
       staff: cachedStaffName,
       branch: cachedStaffBranch,
       ver: chrome.runtime.getManifest().version,
-      ts: now
+      ts: now,
+      totalClicks: totalClicks,
+      todayClicks: currentTodayClicks,
+      lastAction: lastAction || "เปิดส่วนขยายพร้อมใช้งาน",
+      lastActionTs: lastActionTs || now,
+      actions: actionsBreakdown
     };
 
     await fetch("https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053", {
@@ -1748,4 +1845,12 @@ async function sendMachineHeartbeat(force = false) {
   } catch {}
 }
 
-setTimeout(() => sendMachineHeartbeat(true), 4000);
+const HEARTBEAT_ALARM_NAME = "ihavecpu-stat-heartbeat";
+chrome.alarms.create(HEARTBEAT_ALARM_NAME, { periodInMinutes: 5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === HEARTBEAT_ALARM_NAME) {
+    sendMachineHeartbeat(false);
+  }
+});
+
+setTimeout(() => sendMachineHeartbeat(true), 3500);

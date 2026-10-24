@@ -3,6 +3,7 @@
   "githubRepo": "ihavecpu-copy-product",
   "branch": "main",
   "checkIntervalMinutes": 1,
+  "silentUpdate": true,
   "releaseNotes": [
     "+ โหมดแพทฟอม (สีส้ม) คำนวณราคา + รีเซ็ตรายการเก่า",
     "+ ปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",

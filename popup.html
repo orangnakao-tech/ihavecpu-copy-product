@@ -38,13 +38,18 @@ kbd{background:#f0f1f3;border:1px solid #ddd;border-radius:4px;padding:2px 5px}
   <span id="version-badge" class="ver-badge" style="cursor:default;user-select:none">v2.4.0</span>
 </div>
 
-<div id="hidden-admin-diag" style="display:none;background:#1e293b;color:#f8fafc;padding:12px;border-radius:10px;margin-bottom:12px;font-size:12px">
+<div id="hidden-admin-diag" style="display:none;background:#0f172a;color:#f8fafc;padding:12px;border-radius:10px;margin-bottom:12px;font-size:12px;border:1px solid #334155">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <strong style="color:#38bdf8;font-size:13px">📊 สถิติเครื่องที่ติดตั้งทั้งหมด</strong>
-    <button id="refresh-diag-btn" type="button" style="width:auto;margin:0;padding:3px 8px;font-size:11px;background:#0284c7;border-radius:4px">รีเฟรช</button>
+    <strong style="color:#38bdf8;font-size:13px">📊 มอนิเตอร์แอดมิน (Real-Time Live)</strong>
+    <div style="display:flex;gap:6px;align-items:center">
+      <label style="padding:0;margin:0;font-size:11px;color:#94a3b8;cursor:pointer;display:flex;align-items:center;gap:3px">
+        <input type="checkbox" id="auto-refresh-diag" checked style="margin:0;width:auto"> อัปเดตสด
+      </label>
+      <button id="refresh-diag-btn" type="button" style="width:auto;margin:0;padding:2px 7px;font-size:11px;background:#0284c7;border-radius:4px">รีเฟรช</button>
+    </div>
   </div>
-  <div id="diag-summary" style="margin-bottom:8px;color:#94a3b8">กำลังโหลดข้อมูล...</div>
-  <div id="diag-list" style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:5px"></div>
+  <div id="diag-summary" style="margin-bottom:8px;font-size:11.5px;color:#94a3b8;line-height:1.4">กำลังโหลดข้อมูล...</div>
+  <div id="diag-list" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding-right:2px"></div>
 </div>
 
 <div id="update-box" class="update-box">

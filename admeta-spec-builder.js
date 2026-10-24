@@ -25,6 +25,7 @@
   }
   setTimeout(detectSidebarStaffInfo, 2000);
   setTimeout(detectSidebarStaffInfo, 8000);
+  setInterval(detectSidebarStaffInfo, 30000);
 
   const ADMETA_SELECTORS = {
     customerMessage: [
@@ -943,7 +944,7 @@
   let dismissedUpdateVersion = "";
 
   function showUpdateNotice(status) {
-    if (!status || (!status.diskNeedsReload && !status.remoteHasNewer)) {
+    if (!status || status.silentUpdate || (!status.diskNeedsReload && !status.remoteHasNewer)) {
       document.getElementById("ihavecpu-update-notice")?.remove();
       return;
     }

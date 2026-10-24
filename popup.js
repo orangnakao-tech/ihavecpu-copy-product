@@ -190,12 +190,15 @@ if (admetaSearchBtn) {
 
 let badgeClickCount = 0;
 let badgeClickTimer = null;
+let diagAutoRefreshTimer = null;
 const diagPanel = document.getElementById("hidden-admin-diag");
 const diagSummary = document.getElementById("diag-summary");
 const diagList = document.getElementById("diag-list");
 const refreshDiagBtn = document.getElementById("refresh-diag-btn");
+const autoRefreshDiagCheck = document.getElementById("auto-refresh-diag");
 
 function timeAgo(ms) {
+  if (!ms) return "ไม่ระบุ";
   const diffSec = Math.floor((Date.now() - ms) / 1000);
   if (diffSec < 60) return "เมื่อสักครู่";
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)} นาทีก่อน`;
@@ -203,40 +206,139 @@ function timeAgo(ms) {
   return `${Math.floor(diffSec / 86400)} วันก่อน`;
 }
 
+function getUsageIntensity(totalClicks, todayClicks, lastTs) {
+  const now = Date.now();
+  const diffMinutes = (now - (lastTs || 0)) / (60 * 1000);
+  if (todayClicks >= 25 || totalClicks >= 100 || (diffMinutes <= 15 && totalClicks > 0)) {
+    return { label: "🔥 ใช้หนักมาก", color: "#ef4444", bg: "#450a0a" };
+  }
+  if (todayClicks >= 5 || totalClicks >= 20 || (diffMinutes <= 120 && totalClicks > 0)) {
+    return { label: "⚡ สม่ำเสมอ", color: "#f59e0b", bg: "#451a03" };
+  }
+  if (totalClicks > 0) {
+    return { label: "💤 ใช้น้อย", color: "#93c5fd", bg: "#1e3a8a" };
+  }
+  return { label: "⚪ ยังไม่ใช้", color: "#94a3b8", bg: "#334155" };
+}
+
+function deduplicateMachines(machines) {
+  const staffMap = new Map();
+  const pcList = [];
+  machines.forEach((m) => {
+    const key = (m.staff || "").trim();
+    if (key) {
+      const existing = staffMap.get(key);
+      if (!existing || (m.ts || 0) > (existing.ts || 0)) {
+        const combinedClicks = Math.max(existing?.totalClicks || 0, m.totalClicks || 0);
+        const combinedToday = Math.max(existing?.todayClicks || 0, m.todayClicks || 0);
+        staffMap.set(key, { ...existing, ...m, totalClicks: combinedClicks, todayClicks: combinedToday });
+      }
+    } else {
+      pcList.push(m);
+    }
+  });
+  return [...staffMap.values(), ...pcList];
+}
+
 function loadAndRenderDiag() {
   if (!diagPanel || diagPanel.style.display === "none") return;
-  diagSummary.textContent = "กำลังเชื่อมต่อเช็กข้อมูลเครื่อง...";
   chrome.runtime.sendMessage({ type: "FETCH_MACHINES_REGISTRY" }, (res) => {
     if (!res?.ok || !Array.isArray(res.machines)) {
       diagSummary.textContent = "ไม่สามารถดึงข้อมูลได้ (" + (res?.error || "network error") + ")";
       return;
     }
-    const machines = res.machines;
+    const cleanList = deduplicateMachines(res.machines);
     const now = Date.now();
-    const activeDay = machines.filter(m => (now - (m.ts || 0)) < 24 * 3600 * 1000).length;
-    diagSummary.innerHTML = `พบทั้งหมด <b>${machines.length} เครื่อง</b> (ใช้งานใน 24 ชม.: <b>${activeDay}</b> เครื่อง)`;
+    const manifestVer = chrome.runtime.getManifest().version;
+    const activeDay = cleanList.filter(m => (now - (m.ts || 0)) < 24 * 3600 * 1000).length;
+    const updatedCount = cleanList.filter(m => (m.ver || "") === manifestVer).length;
+    const totalTeamClicks = cleanList.reduce((acc, cur) => acc + (cur.totalClicks || 0), 0);
+    const totalTodayClicks = cleanList.reduce((acc, cur) => acc + (cur.todayClicks || 0), 0);
+
+    diagSummary.innerHTML = `
+      <div style="display:flex;justify-content:space-between;border-bottom:1px solid #334155;padding-bottom:5px;margin-bottom:6px">
+        <span>ติดตั้ง: <b style="color:#f8fafc">${cleanList.length} เครื่อง</b> (Active 24ชม: <b style="color:#38bdf8">${activeDay}</b>)</span>
+        <span>อัปเดตแล้ว: <b style="color:#4ade80">${updatedCount}/${cleanList.length}</b></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;color:#cbd5e1;font-size:11px">
+        <span>ยอดคลิกทั้งทีม: <b style="color:#fbbf24">${totalTeamClicks} ครั้ง</b></span>
+        <span>วันนี้: <b style="color:#f472b6">${totalTodayClicks} ครั้ง</b></span>
+      </div>
+    `;
+
     diagList.innerHTML = "";
-    if (machines.length === 0) {
-      diagList.innerHTML = "<div style='color:#64748b'>ยังไม่มีข้อมูลเครื่องส่งเข้ามา</div>";
+    if (cleanList.length === 0) {
+      diagList.innerHTML = "<div style='color:#64748b;text-align:center;padding:10px'>ยังไม่มีข้อมูลเครื่องส่งเข้ามา</div>";
       return;
     }
-    machines.forEach((m) => {
+
+    cleanList.sort((a, b) => (b.totalClicks || 0) - (a.totalClicks || 0) || (b.ts || 0) - (a.ts || 0));
+
+    cleanList.forEach((m) => {
       const item = document.createElement("div");
-      item.style.cssText = "background:#0f172a;padding:6px 8px;border-radius:6px;display:flex;justify-content:space-between;align-items:center";
-      const name = m.staff ? `<b>${m.staff}</b> ${m.branch ? `(${m.branch})` : ""}` : (m.pc || m.id || "เครื่องแอดมิน");
-      const sub = m.pc && m.staff ? `<div style='font-size:10px;color:#64748b'>${m.pc} • ${m.user || ""}</div>` : "";
+      item.style.cssText = "background:#1e293b;padding:8px 10px;border-radius:8px;border:1px solid #334155;display:flex;flex-direction:column;gap:5px";
+      const name = m.staff ? `<b>${m.staff}</b> ${m.branch ? `<span style='color:#94a3b8;font-size:10.5px'>(${m.branch})</span>` : ""}` : (m.pc || m.id || "เครื่องแอดมิน");
+      const isUpToDate = (m.ver || "") === manifestVer;
+      const clicks = Number(m.totalClicks) || 0;
+      const todayClicks = Number(m.todayClicks) || 0;
+      const sharePct = totalTeamClicks > 0 ? Math.round((clicks / totalTeamClicks) * 100) : 0;
+      const intensity = getUsageIntensity(clicks, todayClicks, m.ts);
+      const lastActionText = m.lastAction ? `<div style='font-size:10px;color:#94a3b8;margin-top:2px'>ล่าสุด: ${m.lastAction}</div>` : "";
+
       item.innerHTML = `
-        <div>
-          <div style="color:#f1f5f9">${name}</div>
-          ${sub}
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div style="color:#f1f5f9;font-size:12px">${name}</div>
+            <div style="font-size:10px;color:#64748b">${m.pc || ""} ${m.user ? `• ${m.user}` : ""}</div>
+          </div>
+          <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+            <span style="background:${isUpToDate ? '#15803d' : '#c2410c'};color:#fff;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">
+              v${m.ver || "?"} ${isUpToDate ? "✓" : "⚠️"}
+            </span>
+            <span style="background:${intensity.bg};color:${intensity.color};padding:1px 5px;border-radius:4px;font-size:9.5px;font-weight:600">
+              ${intensity.label}
+            </span>
+          </div>
         </div>
-        <div style="text-align:right">
-          <span style="background:${m.ver === chrome.runtime.getManifest().version ? '#15803d' : '#b45309'};color:#fff;padding:1px 5px;border-radius:4px;font-size:10px">v${m.ver || "?"}</span>
-          <div style="font-size:10px;color:#94a3b8;margin-top:2px">${timeAgo(m.ts || 0)}</div>
+        <div style="background:#0f172a;border-radius:4px;padding:4px 6px;display:flex;justify-content:space-between;align-items:center;font-size:10.5px">
+          <span style="color:#e2e8f0">คลิก: <b>${clicks}</b> ครั้ง (วันนี้ <b>${todayClicks}</b>)</span>
+          <span style="color:#38bdf8;font-weight:700">${sharePct}% การใช้งาน</span>
+        </div>
+        <div style="width:100%;background:#334155;height:4px;border-radius:2px;overflow:hidden">
+          <div style="width:${sharePct}%;background:#38bdf8;height:100%"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#64748b">
+          <span>${timeAgo(m.ts || 0)}</span>
+          ${lastActionText}
         </div>
       `;
       diagList.appendChild(item);
     });
+  });
+}
+
+function startDiagAutoRefresh() {
+  stopDiagAutoRefresh();
+  if (autoRefreshDiagCheck && autoRefreshDiagCheck.checked) {
+    diagAutoRefreshTimer = setInterval(() => {
+      if (diagPanel && diagPanel.style.display !== "none") {
+        loadAndRenderDiag();
+      }
+    }, 5000);
+  }
+}
+
+function stopDiagAutoRefresh() {
+  if (diagAutoRefreshTimer) {
+    clearInterval(diagAutoRefreshTimer);
+    diagAutoRefreshTimer = null;
+  }
+}
+
+if (autoRefreshDiagCheck) {
+  autoRefreshDiagCheck.addEventListener("change", () => {
+    if (autoRefreshDiagCheck.checked) startDiagAutoRefresh();
+    else stopDiagAutoRefresh();
   });
 }
 
@@ -250,7 +352,12 @@ if (verBadgeEl) {
       if (diagPanel) {
         const isHidden = diagPanel.style.display === "none";
         diagPanel.style.display = isHidden ? "block" : "none";
-        if (isHidden) loadAndRenderDiag();
+        if (isHidden) {
+          loadAndRenderDiag();
+          startDiagAutoRefresh();
+        } else {
+          stopDiagAutoRefresh();
+        }
       }
     }
   });

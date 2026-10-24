@@ -650,7 +650,7 @@
   let dismissedUpdateVersion = "";
 
   function showUpdateNotice(status) {
-    if (!status || (!status.diskNeedsReload && !status.remoteHasNewer)) {
+    if (!status || status.silentUpdate || (!status.diskNeedsReload && !status.remoteHasNewer)) {
       document.getElementById("ihavecpu-update-notice")?.remove();
       return;
     }
@@ -1412,6 +1412,42 @@
     }, 1000);
   }
 
+  function detectZaapiStaffInfo() {
+    if (!/^https:\/\/app\.zaapi\.com\//i.test(location.href)) return;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (/user|profile|auth|account|current_user/i.test(key || "")) {
+          try {
+            const val = JSON.parse(localStorage.getItem(key));
+            const name = val?.name || val?.user?.name || val?.displayName || val?.fullName || val?.username;
+            if (name && typeof name === "string" && name.trim().length >= 2 && !name.includes("@")) {
+              chrome.runtime.sendMessage({
+                type: "SYNC_STAFF_INFO",
+                staff: name.trim(),
+                branch: ""
+              }).catch(() => {});
+              return;
+            }
+          } catch {}
+        }
+      }
+      const userEl = document.querySelector("[class*='user-name'], [class*='userName'], [class*='profile-name'], [data-testid*='user'], header [class*='avatar'] + *");
+      if (userEl) {
+        const text = (userEl.textContent || "").trim();
+        if (text && text.length >= 2 && text.length <= 40 && !/(หน้าหลัก|ตั้งค่า|แชท|ออกจากระบบ)/.test(text)) {
+          chrome.runtime.sendMessage({
+            type: "SYNC_STAFF_INFO",
+            staff: text,
+            branch: ""
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }
+
   addButton();
   resumePendingActionIfAny();
+  setTimeout(detectZaapiStaffInfo, 3000);
+  setTimeout(detectZaapiStaffInfo, 10000);
 })();
