@@ -2,7 +2,7 @@
   "githubOwner": "orangnakao-tech",
   "githubRepo": "ihavecpu-copy-product",
   "branch": "main",
-  "checkIntervalMinutes": 2,
+  "checkIntervalMinutes": 1,
   "releaseNotes": [
     "+ โหมดแพทฟอม (สีส้ม) คำนวณราคา + รีเซ็ตรายการเก่า",
     "+ ปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",

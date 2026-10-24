@@ -84,18 +84,25 @@ Write-Host "2/3 $([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([c
 $vbsScript = Join-Path $permanentDirectory "silent-updater.vbs"
 $updaterScript = Join-Path $permanentDirectory "update-extension.ps1"
 $taskName = "iHAVECPU-Extension-AutoUpdater"
-$wscriptCmd = "wscript.exe `"$vbsScript`""
+$shortVbs = $vbsScript
+try {
+  $fso = New-Object -ComObject Scripting.FileSystemObject
+  if ($fso.FileExists($vbsScript)) {
+    $shortVbs = $fso.GetFile($vbsScript).ShortPath
+  }
+} catch {}
+$wscriptCmd = "wscript.exe //B //NoLogo `"$vbsScript`""
 
 $taskCreated = $false
 try {
-  $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsScript`""
-  $triggerRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+  $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "//B //NoLogo `"$vbsScript`" --once"
+  $triggerRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
   Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($triggerRepeat) -Settings $settings -Force -ErrorAction Stop | Out-Null
   $taskCreated = $true
 } catch {
   try {
-    $schtasksLine = "/Create /SC MINUTE /MO 5 /TN `"$taskName`" /TR `"wscript.exe '$vbsScript'`" /F"
+    $schtasksLine = "/Create /SC MINUTE /MO 1 /TN `"$taskName`" /TR `"wscript.exe //B //NoLogo $shortVbs --once`" /F"
     $proc = Start-Process -FilePath "schtasks.exe" -ArgumentList $schtasksLine -NoNewWindow -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
     if ($proc.ExitCode -eq 0) {
       $taskCreated = $true
@@ -107,19 +114,29 @@ try {
   $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
   if (Test-Path -LiteralPath $runKey) {
     Set-ItemProperty -LiteralPath $runKey -Name $taskName -Value $wscriptCmd -Force
+    $taskCreated = $true
   }
 } catch {}
 
 try {
+  $protoRoot = "HKCU:\Software\Classes\ihavecpu-updater"
+  $protoCmd = "HKCU:\Software\Classes\ihavecpu-updater\shell\open\command"
+  New-Item -Path $protoCmd -Force | Out-Null
+  Set-ItemProperty -LiteralPath $protoRoot -Name "(Default)" -Value "URL:iHAVECPU Extension Updater" -Force
+  Set-ItemProperty -LiteralPath $protoRoot -Name "URL Protocol" -Value "" -Force
+  Set-ItemProperty -LiteralPath $protoCmd -Name "(Default)" -Value "wscript.exe //B //NoLogo `"$vbsScript`" --force" -Force
+} catch {}
+
+try {
   if (Test-Path -LiteralPath $vbsScript) {
-    Start-Process -FilePath "wscript.exe" -ArgumentList "`"$vbsScript`"" -WindowStyle Hidden
+    Start-Process -FilePath "wscript.exe" -ArgumentList "//B //NoLogo `"$vbsScript`"" -WindowStyle Hidden
   } elseif (Test-Path -LiteralPath $updaterScript) {
     Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$updaterScript`" -Silent" -WindowStyle Hidden
   }
 } catch {}
 
 if ($taskCreated) {
-  Write-Host "   $([char]0x0E15)$([char]0x0E31)$([char]0x0E49)$([char]0x0E07)$([char]0x0E04)$([char]0x0E48)$([char]0x0E32)$([char]0x0E14)$([char]0x0E36)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E15)$([char]0x0E42)$([char]0x0E19)$([char]0x0E21)$([char]0x0E31)$([char]0x0E15)$([char]0x0E34)$([char]0x0E17)$([char]0x0E38)$([char]0x0E01)$([char]0x0E46) 5 $([char]0x0E19)$([char]0x0E32)$([char]0x0E17)$([char]0x0E35)$([char]0x0E41)$([char]0x0E25)$([char]0x0E30)$([char]0x0E15)$([char]0x0E2D)$([char]0x0E19)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E34)$([char]0x0E14)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E40)$([char]0x0E23)$([char]0x0E35)$([char]0x0E22)$([char]0x0E1A)$([char]0x0E23)$([char]0x0E49)$([char]0x0E2D)$([char]0x0E22)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27)!" -ForegroundColor Green
+  Write-Host "   $([char]0x0E15)$([char]0x0E31)$([char]0x0E49)$([char]0x0E07)$([char]0x0E04)$([char]0x0E48)$([char]0x0E32)$([char]0x0E14)$([char]0x0E36)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E15)$([char]0x0E42)$([char]0x0E19)$([char]0x0E21)$([char]0x0E31)$([char]0x0E15)$([char]0x0E34)$([char]0x0E17)$([char]0x0E38)$([char]0x0E01)$([char]0x0E46) 1 $([char]0x0E19)$([char]0x0E32)$([char]0x0E17)$([char]0x0E35)$([char]0x0E41)$([char]0x0E25)$([char]0x0E30)$([char]0x0E15)$([char]0x0E2D)$([char]0x0E19)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E34)$([char]0x0E14)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E40)$([char]0x0E23)$([char]0x0E35)$([char]0x0E22)$([char]0x0E1A)$([char]0x0E23)$([char]0x0E49)$([char]0x0E2D)$([char]0x0E22)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27)!" -ForegroundColor Green
 } else {
   Write-Host "   $([char]0x0E15)$([char]0x0E31)$([char]0x0E49)$([char]0x0E07)$([char]0x0E04)$([char]0x0E48)$([char]0x0E32)$([char]0x0E14)$([char]0x0E36)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E15)$([char]0x0E2D)$([char]0x0E19)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E34)$([char]0x0E14)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27) ($([char]0x0E2A)$([char]0x0E32)$([char]0x0E21)$([char]0x0E32)$([char]0x0E23)$([char]0x0E16)$([char]0x0E01)$([char]0x0E14)$([char]0x0E23)$([char]0x0E31)$([char]0x0E19) '$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22).bat' $([char]0x0E44)$([char]0x0E14)$([char]0x0E49)$([char]0x0E17)$([char]0x0E38)$([char]0x0E01)$([char]0x0E40)$([char]0x0E21)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D))" -ForegroundColor Yellow
 }

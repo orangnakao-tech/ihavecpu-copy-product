@@ -1423,6 +1423,77 @@ async function fetchRemoteManifestVersion(owner, repo, branch) {
   return null;
 }
 
+async function fetchRemoteUpdateConfig(owner, repo, branch) {
+  const ts = Date.now();
+  const encOwner = encodeURIComponent(owner);
+  const encRepo = encodeURIComponent(repo);
+  const encBranch = encodeURIComponent(branch || "main");
+
+  const apiUrls = [
+    `https://api.github.com/repos/${encOwner}/${encRepo}/contents/update-config.json?ref=${encBranch}&t=${ts}`,
+    `https://api.github.com/repos/${encOwner}/${encRepo}/contents/ihavecpu-copy-product-v4/update-config.json?ref=${encBranch}&t=${ts}`
+  ];
+  for (const apiUrl of apiUrls) {
+    try {
+      const res = await fetch(apiUrl, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.content) {
+          const decoded = new TextDecoder("utf-8").decode(
+            Uint8Array.from(atob(data.content.replace(/\s+/g, "")), (c) => c.charCodeAt(0))
+          ).replace(/^\uFEFF/, "").trim();
+          const parsed = JSON.parse(decoded);
+          if (parsed && Array.isArray(parsed.releaseNotes)) return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  const rawUrls = [
+    `https://raw.githubusercontent.com/${encOwner}/${encRepo}/${encBranch}/update-config.json?t=${ts}`,
+    `https://raw.githubusercontent.com/${encOwner}/${encRepo}/${encBranch}/ihavecpu-copy-product-v4/update-config.json?t=${ts}`
+  ];
+  for (const rawUrl of rawUrls) {
+    try {
+      const res = await fetch(rawUrl, { cache: "no-store" });
+      if (res.ok) {
+        const text = (await res.text()).replace(/^\uFEFF/, "").trim();
+        const parsed = JSON.parse(text);
+        if (parsed && Array.isArray(parsed.releaseNotes)) return parsed;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function reinjectContentScriptsIntoOpenTabs() {
+  if (!chrome.scripting?.executeScript) return;
+  try {
+    const ihcAndZaapiTabs = await chrome.tabs.query({
+      url: ["https://ihavecpu.com/*", "https://www.ihavecpu.com/*", "https://app.zaapi.com/*"]
+    });
+    for (const tab of ihcAndZaapiTabs) {
+      if (tab?.id) {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["content.js"]
+        }).catch(() => {});
+      }
+    }
+    const admetaTabs = await chrome.tabs.query({
+      url: ["https://admeta.me/admin/*"]
+    });
+    for (const tab of admetaTabs) {
+      if (tab?.id) {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["admeta-spec-builder.js"]
+        }).catch(() => {});
+      }
+    }
+  } catch {}
+}
+
 async function broadcastUpdateNotice(statusObj) {
   try {
     const tabs = await chrome.tabs.query({ url: MATCHING_URL_PATTERNS });
@@ -1436,7 +1507,7 @@ async function broadcastUpdateNotice(statusObj) {
 
 async function quickCheckDiskUpdate() {
   const now = Date.now();
-  if (now - lastQuickDiskCheckAt < 15000 || activeOperationsCount > 0 || autoReloadPromise) return;
+  if (now - lastQuickDiskCheckAt < 10000 || activeOperationsCount > 0 || autoReloadPromise) return;
   lastQuickDiskCheckAt = now;
   try {
     const loadedVersion = chrome.runtime.getManifest().version;
@@ -1445,7 +1516,7 @@ async function quickCheckDiskUpdate() {
       const diskText = (await diskRes.text()).replace(/^\uFEFF/, "").trim();
       const diskManifest = JSON.parse(diskText);
       if (diskManifest?.version && diskManifest.version !== loadedVersion) {
-        await checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
+        await checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true });
       }
     }
   } catch {}
@@ -1455,7 +1526,7 @@ chrome.tabs.onActivated.addListener(() => {
   quickCheckDiskUpdate();
 });
 
-async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = false } = {}) {
+async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {}) {
   const loadedVersion = chrome.runtime.getManifest().version;
   let diskVersion = loadedVersion;
   let remoteVersion = null;
@@ -1493,11 +1564,16 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = false } = {}
 
   // 2. ตรวจสอบเวอร์ชันล่าสุดบน GitHub
   const config = await getUpdateConfig();
+  let finalReleaseNotes = config.releaseNotes || [];
   if (config.githubOwner && config.githubOwner !== "YOUR_GITHUB_USERNAME" && config.githubRepo) {
     try {
       remoteVersion = await fetchRemoteManifestVersion(config.githubOwner, config.githubRepo, config.branch);
       if (remoteVersion && compareVersions(remoteVersion, loadedVersion) > 0) {
         remoteHasNewer = true;
+        const remoteCfg = await fetchRemoteUpdateConfig(config.githubOwner, config.githubRepo, config.branch);
+        if (remoteCfg && Array.isArray(remoteCfg.releaseNotes) && remoteCfg.releaseNotes.length > 0) {
+          finalReleaseNotes = remoteCfg.releaseNotes;
+        }
       }
     } catch (err) {
       console.warn("Remote GitHub version check failed:", err);
@@ -1521,7 +1597,7 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = false } = {}
     githubOwner: config.githubOwner,
     githubRepo: config.githubRepo,
     branch: config.branch,
-    releaseNotes: config.releaseNotes || []
+    releaseNotes: finalReleaseNotes
   };
   await chrome.storage.local.set({ updateStatus: statusObj });
   await broadcastUpdateNotice(statusObj);
@@ -1530,23 +1606,24 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = false } = {}
 
 async function setupUpdateAlarm() {
   const config = await getUpdateConfig();
-  const period = Math.max(1, Number(config.checkIntervalMinutes) || 2);
+  const period = Math.max(1, Number(config.checkIntervalMinutes) || 1);
   await chrome.alarms.create(UPDATE_ALARM_NAME, { periodInMinutes: period });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
   setupUpdateAlarm();
+  reinjectContentScriptsIntoOpenTabs();
   checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
 });
 
 chrome.runtime.onStartup.addListener(() => {
   setupUpdateAlarm();
-  checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
+  checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === UPDATE_ALARM_NAME) {
-    checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
+    checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true });
   }
 });
 
@@ -1564,8 +1641,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === "RELOAD_EXTENSION_NOW") {
-    chrome.runtime.reload();
-    sendResponse({ ok: true });
+    (async () => {
+      const loadedVersion = chrome.runtime.getManifest().version;
+      for (let i = 0; i < 12; i++) {
+        try {
+          const diskRes = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" });
+          if (diskRes.ok) {
+            const diskText = (await diskRes.text()).replace(/^\uFEFF/, "").trim();
+            const diskManifest = JSON.parse(diskText);
+            if (diskManifest?.version && diskManifest.version !== loadedVersion) {
+              break;
+            }
+          }
+        } catch {}
+        if (!message.waitForDiskSync) break;
+        await delay(500);
+      }
+      sendResponse({ ok: true });
+      setTimeout(() => chrome.runtime.reload(), 80);
+    })();
     return true;
   }
 });

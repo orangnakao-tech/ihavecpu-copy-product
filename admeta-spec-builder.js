@@ -1,6 +1,9 @@
 (() => {
   if (window.__ihavecpuAdmetaInstalled) return;
   window.__ihavecpuAdmetaInstalled = true;
+  document.getElementById("ihavecpu-platform-calc-reset-btn")?.remove();
+  document.getElementById("ihavecpu-platform-calc-reset-inline")?.remove();
+  document.getElementById("ihavecpu-update-notice")?.remove();
 
   const ADMETA_SELECTORS = {
     customerMessage: [
@@ -969,10 +972,13 @@
         </div>
         <div class="ihc-update-notes" style="margin-bottom:8px;display:flex;flex-direction:column;gap:4px;font-size:12px;"></div>
         <div class="ihc-update-msg" style="margin-bottom:9px;color:#555;font-size:11.5px;">
-          กดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยาย Chrome เพื่อใช้เวอร์ชันใหม่
+          กดปุ่มด้านล่างเพื่อซิงก์และรีเซ็ตใช้เวอร์ชันใหม่ทันที
         </div>
-        <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;background:#d71920;color:#fff;text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;">
-          ไปที่หน้าส่วนขยาย (chrome://extensions/)
+        <button type="button" data-reload-extension-now="1" style="display:block;width:100%;border:0;text-align:center;background:#d71920;color:#fff;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;">
+          🔄 กดอัปเดตและรีเซ็ตทันที
+        </button>
+        <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;color:#666;text-decoration:underline;font-size:11px;margin-top:6px;cursor:pointer;">
+          หรือเปิดหน้าส่วนขยาย (chrome://extensions/)
         </a>
       `;
       box.addEventListener("click", (event) => {
@@ -982,6 +988,22 @@
             sessionStorage.setItem("ihavecpu_dismissed_update", dismissedUpdateVersion);
           } catch {}
           box.remove();
+          return;
+        }
+        const reloadNowBtn = event.target.closest("[data-reload-extension-now]");
+        if (reloadNowBtn) {
+          event.preventDefault();
+          reloadNowBtn.textContent = "กำลังอัปเดตและรีเซ็ตส่วนขยาย...";
+          reloadNowBtn.disabled = true;
+          try {
+            const iframe = document.createElement("iframe");
+            iframe.style.display = "none";
+            iframe.src = "ihavecpu-updater://update";
+            document.body.appendChild(iframe);
+            setTimeout(() => iframe.remove(), 3000);
+          } catch {}
+          chrome.runtime.sendMessage({ type: "RELOAD_EXTENSION_NOW", waitForDiskSync: true }).catch(() => {});
+          setTimeout(() => location.reload(), 1500);
           return;
         }
         const openLink = event.target.closest("[data-open-extensions]");
@@ -1107,6 +1129,7 @@
   });
 
   document.addEventListener("keydown", (event) => {
+    if (!chrome?.runtime?.id) return;
     if (event.key !== "Enter") return;
     const target = event.target;
     if (!target || target.tagName !== "INPUT") return;
@@ -1131,5 +1154,11 @@
   }, true);
 
   ensurePlatformCalculatorResetButton();
-  window.setInterval(ensurePlatformCalculatorResetButton, 700);
+  const calcResetIntervalId = window.setInterval(() => {
+    if (!chrome?.runtime?.id) {
+      clearInterval(calcResetIntervalId);
+      return;
+    }
+    ensurePlatformCalculatorResetButton();
+  }, 700);
 })();

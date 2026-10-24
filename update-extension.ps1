@@ -5,16 +5,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$targetDir = Join-Path $env:LOCALAPPDATA "iHAVECPU-Copy-Product"
-if (-not (Test-Path -LiteralPath $targetDir)) {
-  $targetDir = $PSScriptRoot
-}
+$permanentDir = Join-Path $env:LOCALAPPDATA "iHAVECPU-Copy-Product"
 
 $lockFile = Join-Path $env:TEMP "ihavecpu-ext-updater.lock"
 if (Test-Path -LiteralPath $lockFile) {
   try {
     $lockAge = (Get-Date) - (Get-Item -LiteralPath $lockFile).LastWriteTime
-    if ($lockAge.TotalMinutes -lt 3 -and -not $Force) {
+    if ($lockAge.TotalSeconds -lt 45 -and -not $Force) {
       exit 0
     }
   } catch {}
@@ -22,9 +19,6 @@ if (Test-Path -LiteralPath $lockFile) {
 try {
   Set-Content -LiteralPath $lockFile -Value $PID -Force -ErrorAction SilentlyContinue
 } catch {}
-
-$configPath = Join-Path $targetDir "update-config.json"
-$manifestPath = Join-Path $targetDir "manifest.json"
 
 function Write-Info($msg, $color = "Cyan") {
   if (-not $Silent) {
@@ -55,22 +49,115 @@ function Compare-SemVer($v1, $v2) {
   return 0
 }
 
-if (-not (Test-Path -LiteralPath $configPath)) {
-  Write-Info "$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C) update-config.json $([char]0x0E43)$([char]0x0E19) $targetDir" "Red"
-  exit 1
+# รวบรวมโฟลเดอร์ส่วนขยายทั้งหมดในเครื่องที่ต้องอัปเดตให้ตรงกัน
+$targetSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+[void]$targetSet.Add($permanentDir)
+
+if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot "manifest.json"))) {
+  $isDevRepo = Test-Path -LiteralPath (Join-Path $PSScriptRoot "publish-update.ps1")
+  if (-not $isDevRepo -or $Force) {
+    [void]$targetSet.Add($PSScriptRoot)
+  }
 }
 
-$config = Read-JsonFileNoBom $configPath
-$owner = if ($config.githubOwner -and $config.githubOwner -ne "YOUR_GITHUB_USERNAME") { $config.githubOwner } else { "orangnakao-tech" }
-$repo = if ($config.githubRepo) { $config.githubRepo } else { "ihavecpu-copy-product" }
-$branch = if ($config.branch) { $config.branch } else { "main" }
-
-$localVersion = "0.0.0"
-if (Test-Path -LiteralPath $manifestPath) {
+# ค้นหาโฟลเดอร์ส่วนขยายที่ถูก Load Unpacked ไว้จริงใน Chrome / Edge / Brave ทุก Profile
+$browserUserDataDirs = @(
+  (Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"),
+  (Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data"),
+  (Join-Path $env:LOCALAPPDATA "BraveSoftware\Brave-Browser\User Data")
+)
+foreach ($userDataDir in $browserUserDataDirs) {
+  if (-not (Test-Path -LiteralPath $userDataDir)) { continue }
   try {
-    $localManifest = Read-JsonFileNoBom $manifestPath
-    if ($localManifest.version) {
-      $localVersion = [string]$localManifest.version
+    $prefFiles = Get-ChildItem -LiteralPath $userDataDir -Include "Preferences", "Secure Preferences" -Recurse -Depth 2 -ErrorAction SilentlyContinue
+    foreach ($prefFile in $prefFiles) {
+      try {
+        $rawPref = [System.IO.File]::ReadAllText($prefFile.FullName, [System.Text.Encoding]::UTF8)
+        $pathMatches = [regex]::Matches($rawPref, '"path"\s*:\s*"([A-Za-z]:\\(?:[^"\\]|\\.)*)"')
+        foreach ($m in $pathMatches) {
+          $candidatePath = $m.Groups[1].Value -replace '\\\\', '\'
+          if ((Test-Path -LiteralPath (Join-Path $candidatePath "manifest.json")) -and
+              (Test-Path -LiteralPath (Join-Path $candidatePath "admeta-spec-builder.js")) -and
+              -not (Test-Path -LiteralPath (Join-Path $candidatePath "publish-update.ps1"))) {
+            [void]$targetSet.Add($candidatePath)
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
+# ค้นหาโฟลเดอร์ที่แอดมินอาจแตกไฟล์ไว้ใน Downloads หรือ Desktop
+$commonRoots = @(
+  (Join-Path $env:USERPROFILE "Downloads"),
+  (Join-Path $env:USERPROFILE "Desktop")
+)
+foreach ($root in $commonRoots) {
+  if (-not (Test-Path -LiteralPath $root)) { continue }
+  try {
+    $foundManifests = Get-ChildItem -LiteralPath $root -Filter "manifest.json" -Recurse -Depth 3 -ErrorAction SilentlyContinue
+    foreach ($mf in $foundManifests) {
+      $candDir = $mf.Directory.FullName
+      if ((Test-Path -LiteralPath (Join-Path $candDir "admeta-spec-builder.js")) -and
+          -not (Test-Path -LiteralPath (Join-Path $candDir "publish-update.ps1"))) {
+        [void]$targetSet.Add($candDir)
+      }
+    }
+  } catch {}
+}
+
+$targetDirs = @($targetSet)
+
+$config = $null
+foreach ($dir in @($permanentDir, $PSScriptRoot) + $targetDirs) {
+  if (-not $dir) { continue }
+  $cfgCandidate = Join-Path $dir "update-config.json"
+  if (Test-Path -LiteralPath $cfgCandidate) {
+    try {
+      $config = Read-JsonFileNoBom $cfgCandidate
+      if ($config) { break }
+    } catch {}
+  }
+}
+
+$owner = if ($config -and $config.githubOwner -and $config.githubOwner -ne "YOUR_GITHUB_USERNAME") { $config.githubOwner } else { "orangnakao-tech" }
+$repo = if ($config -and $config.githubRepo) { $config.githubRepo } else { "ihavecpu-copy-product" }
+$branch = if ($config -and $config.branch) { $config.branch } else { "main" }
+
+$minLocalVersion = $null
+foreach ($dir in $targetDirs) {
+  $mfPath = Join-Path $dir "manifest.json"
+  $ver = "0.0.0"
+  if (Test-Path -LiteralPath $mfPath) {
+    try {
+      $mf = Read-JsonFileNoBom $mfPath
+      if ($mf.version) { $ver = [string]$mf.version }
+    } catch {}
+  }
+  if ($null -eq $minLocalVersion -or (Compare-SemVer $ver $minLocalVersion) -lt 0) {
+    $minLocalVersion = $ver
+  }
+}
+if (-not $minLocalVersion) { $minLocalVersion = "0.0.0" }
+
+function Ensure-AutoUpdaterRegistered {
+  try {
+    $vbsScript = Join-Path $permanentDir "silent-updater.vbs"
+    if (-not (Test-Path -LiteralPath $vbsScript)) { return }
+    $taskName = "iHAVECPU-Extension-AutoUpdater"
+    $wscriptCmd = "wscript.exe //B //NoLogo `"$vbsScript`""
+    $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    if (Test-Path -LiteralPath $runKey) {
+      Set-ItemProperty -LiteralPath $runKey -Name $taskName -Value $wscriptCmd -Force -ErrorAction SilentlyContinue
+    }
+    $protoRoot = "HKCU:\Software\Classes\ihavecpu-updater"
+    $protoCmd = "HKCU:\Software\Classes\ihavecpu-updater\shell\open\command"
+    New-Item -Path $protoCmd -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-ItemProperty -LiteralPath $protoRoot -Name "(Default)" -Value "URL:iHAVECPU Extension Updater" -Force -ErrorAction SilentlyContinue
+    Set-ItemProperty -LiteralPath $protoRoot -Name "URL Protocol" -Value "" -Force -ErrorAction SilentlyContinue
+    Set-ItemProperty -LiteralPath $protoCmd -Name "(Default)" -Value "wscript.exe //B //NoLogo `"$vbsScript`" --force" -Force -ErrorAction SilentlyContinue
+    if (-not $Silent) {
+      Start-Process -FilePath "wscript.exe" -ArgumentList "//B //NoLogo `"$vbsScript`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
     }
   } catch {}
 }
@@ -87,7 +174,7 @@ $remoteVersion = $null
 
 Write-Info "$([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)$([char]0x0E01)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E25)$([char]0x0E48)$([char]0x0E32)$([char]0x0E2A)$([char]0x0E38)$([char]0x0E14)$([char]0x0E08)$([char]0x0E32)$([char]0x0E01) GitHub ($owner/$repo)..."
 
-# 1.  GitHub API  ( Cache 5  raw.githubusercontent.com)
+# 1. เช็กผ่าน GitHub API ก่อน (ไม่ติด Cache 5 นาทีของ raw.githubusercontent.com)
 $apiUrls = @(
   "https://api.github.com/repos/$owner/$repo/contents/manifest.json?ref=$branch&t=$ts",
   "https://api.github.com/repos/$owner/$repo/contents/ihavecpu-copy-product-v4/manifest.json?ref=$branch&t=$ts"
@@ -107,7 +194,7 @@ foreach ($apiUrl in $apiUrls) {
   } catch {}
 }
 
-# 2. Fallback  raw.githubusercontent.com ( Rate Limit  GitHub API)
+# 2. Fallback เช็กจาก raw.githubusercontent.com (กรณีติด Rate Limit ของ GitHub API)
 $rawUrls = @(
   "https://raw.githubusercontent.com/$owner/$repo/$branch/manifest.json?t=$ts",
   "https://raw.githubusercontent.com/$owner/$repo/$branch/ihavecpu-copy-product-v4/manifest.json?t=$ts"
@@ -133,17 +220,19 @@ foreach ($rawUrl in $rawUrls) {
 
 if ([string]::IsNullOrWhiteSpace($remoteVersion)) {
   Write-Info "$([char]0x0E22)$([char]0x0E31)$([char]0x0E07)$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C) manifest.json $([char]0x0E1A)$([char]0x0E19) GitHub ($owner/$repo) $([char]0x0E2B)$([char]0x0E23)$([char]0x0E37)$([char]0x0E2D)$([char]0x0E40)$([char]0x0E0A)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E21)$([char]0x0E15)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E44)$([char]0x0E21)$([char]0x0E48)$([char]0x0E44)$([char]0x0E14)$([char]0x0E49)$([char]0x0E43)$([char]0x0E19)$([char]0x0E02)$([char]0x0E13)$([char]0x0E30)$([char]0x0E19)$([char]0x0E35)$([char]0x0E49)" "Yellow"
+  Ensure-AutoUpdaterRegistered
   Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
   exit 0
 }
 
-if (-not $Force -and ((Compare-SemVer $remoteVersion $localVersion) -le 0)) {
-  Write-Info "$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E47)$([char]0x0E19)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E25)$([char]0x0E48)$([char]0x0E32)$([char]0x0E2A)$([char]0x0E38)$([char]0x0E14)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27) (v$localVersion)" "Green"
+if (-not $Force -and ((Compare-SemVer $remoteVersion $minLocalVersion) -le 0)) {
+  Write-Info "$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E47)$([char]0x0E19)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E25)$([char]0x0E48)$([char]0x0E32)$([char]0x0E2A)$([char]0x0E38)$([char]0x0E14)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27) (v$minLocalVersion)" "Green"
+  Ensure-AutoUpdaterRegistered
   Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue
   exit 0
 }
 
-Write-Info "$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E43)$([char]0x0E2B)$([char]0x0E21)$([char]0x0E48) v$remoteVersion ($([char]0x0E43)$([char]0x0E19)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07) v$localVersion) $([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E14)$([char]0x0E32)$([char]0x0E27)$([char]0x0E19)$([char]0x0E4C)$([char]0x0E42)$([char]0x0E2B)$([char]0x0E25)$([char]0x0E14)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)..." "Green"
+Write-Info "$([char]0x0E1E)$([char]0x0E1A)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E43)$([char]0x0E2B)$([char]0x0E21)$([char]0x0E48) v$remoteVersion ($([char]0x0E43)$([char]0x0E19)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07) v$minLocalVersion) $([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E14)$([char]0x0E32)$([char]0x0E27)$([char]0x0E19)$([char]0x0E4C)$([char]0x0E42)$([char]0x0E2B)$([char]0x0E25)$([char]0x0E14)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)..." "Green"
 
 $tempZip = Join-Path $env:TEMP "ihavecpu-ext-update-$([Guid]::NewGuid().ToString('N')).zip"
 $tempExtract = Join-Path $env:TEMP "ihavecpu-ext-extract-$([Guid]::NewGuid().ToString('N'))"
@@ -167,30 +256,35 @@ try {
     }
   }
 
-  if (-not (Test-Path -LiteralPath $targetDir)) {
-    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-  }
-
   $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|README-.*|TEST_CHECKLIST\.md)$'
-  Get-ChildItem -LiteralPath $sourceFolder -Force | Where-Object { $_.Name -notmatch $excludedPattern } | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $targetDir -Recurse -Force
-  }
+  $filesToCopy = Get-ChildItem -LiteralPath $sourceFolder -Force | Where-Object { $_.Name -notmatch $excludedPattern }
 
-  #  update-config.json 
-  $newConfigPath = Join-Path $targetDir "update-config.json"
-  if (Test-Path -LiteralPath $newConfigPath) {
+  foreach ($destDir in $targetDirs) {
     try {
-      $newConfig = Read-JsonFileNoBom $newConfigPath
-      if (-not $newConfig.githubOwner -or $newConfig.githubOwner -eq "YOUR_GITHUB_USERNAME") {
-        $config.githubOwner = $owner
-        $config.githubRepo = $repo
-        $config.branch = $branch
-        $jsonOut = $config | ConvertTo-Json -Depth 5
-        Write-Utf8NoBom $newConfigPath $jsonOut
+      if (-not (Test-Path -LiteralPath $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
       }
+      foreach ($item in $filesToCopy) {
+        Copy-Item -LiteralPath $item.FullName -Destination $destDir -Recurse -Force
+      }
+      $newConfigPath = Join-Path $destDir "update-config.json"
+      if (Test-Path -LiteralPath $newConfigPath) {
+        try {
+          $newConfig = Read-JsonFileNoBom $newConfigPath
+          if (-not $newConfig.githubOwner -or $newConfig.githubOwner -eq "YOUR_GITHUB_USERNAME") {
+            $newConfig.githubOwner = $owner
+            $newConfig.githubRepo = $repo
+            $newConfig.branch = $branch
+            $jsonOut = $newConfig | ConvertTo-Json -Depth 5
+            Write-Utf8NoBom $newConfigPath $jsonOut
+          }
+        } catch {}
+      }
+      Write-Info "   -> $([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E42)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E40)$([char]0x0E14)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C): $destDir" "Cyan"
     } catch {}
   }
 
+  Ensure-AutoUpdaterRegistered
   Write-Info "$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15)$([char]0x0E44)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E4C)$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E40)$([char]0x0E1B)$([char]0x0E47)$([char]0x0E19)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19) v$remoteVersion $([char]0x0E2A)$([char]0x0E33)$([char]0x0E40)$([char]0x0E23)$([char]0x0E47)$([char]0x0E08)$([char]0x0E41)$([char]0x0E25)$([char]0x0E49)$([char]0x0E27)! $([char]0x0E15)$([char]0x0E31)$([char]0x0E27)$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E43)$([char]0x0E19) Chrome $([char]0x0E08)$([char]0x0E30)$([char]0x0E23)$([char]0x0E35)$([char]0x0E42)$([char]0x0E2B)$([char]0x0E25)$([char]0x0E14)$([char]0x0E15)$([char]0x0E31)$([char]0x0E27)$([char]0x0E40)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E15)$([char]0x0E42)$([char]0x0E19)$([char]0x0E21)$([char]0x0E31)$([char]0x0E15)$([char]0x0E34)" "Green"
 } catch {
   Write-Info "$([char]0x0E40)$([char]0x0E01)$([char]0x0E34)$([char]0x0E14)$([char]0x0E02)$([char]0x0E49)$([char]0x0E2D)$([char]0x0E1C)$([char]0x0E34)$([char]0x0E14)$([char]0x0E1E)$([char]0x0E25)$([char]0x0E32)$([char]0x0E14)$([char]0x0E23)$([char]0x0E30)$([char]0x0E2B)$([char]0x0E27)$([char]0x0E48)$([char]0x0E32)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15): $($_.Exception.Message)" "Red"

@@ -4,6 +4,10 @@
 
   const STYLE_ID = "ihavecpu-copy-style";
   const BUTTON_ID = "ihavecpu-copy-floating-button";
+  document.getElementById(BUTTON_ID)?.remove();
+  document.getElementById(`${BUTTON_ID}-launcher`)?.remove();
+  document.getElementById(STYLE_ID)?.remove();
+  document.getElementById("ihavecpu-update-notice")?.remove();
   const ZAAPI_SELECTORS = {
     editors: ['[contenteditable="true"]', "textarea", '[role="textbox"]'],
     textarea: "textarea",
@@ -696,10 +700,13 @@
         </div>
         <div class="ihc-update-notes" style="margin-bottom:8px;display:flex;flex-direction:column;gap:4px;font-size:12px;"></div>
         <div class="ihc-update-msg" style="margin-bottom:9px;color:#555;font-size:11.5px;">
-          กดรีเซ็ต (ปุ่มลูกศรหมุน 🔄) ที่หน้าส่วนขยาย Chrome เพื่อใช้เวอร์ชันใหม่
+          กดปุ่มด้านล่างเพื่อซิงก์และรีเซ็ตใช้เวอร์ชันใหม่ทันที
         </div>
-        <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;background:#d71920;color:#fff;text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;">
-          ไปที่หน้าส่วนขยาย (chrome://extensions/)
+        <button type="button" data-reload-extension-now="1" style="display:block;width:100%;border:0;text-align:center;background:#d71920;color:#fff;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;">
+          🔄 กดอัปเดตและรีเซ็ตทันที
+        </button>
+        <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;color:#666;text-decoration:underline;font-size:11px;margin-top:6px;cursor:pointer;">
+          หรือเปิดหน้าส่วนขยาย (chrome://extensions/)
         </a>
       `;
       box.addEventListener("click", (event) => {
@@ -709,6 +716,22 @@
             sessionStorage.setItem("ihavecpu_dismissed_update", dismissedUpdateVersion);
           } catch {}
           box.remove();
+          return;
+        }
+        const reloadNowBtn = event.target.closest("[data-reload-extension-now]");
+        if (reloadNowBtn) {
+          event.preventDefault();
+          reloadNowBtn.textContent = "กำลังอัปเดตและรีเซ็ตส่วนขยาย...";
+          reloadNowBtn.disabled = true;
+          try {
+            const iframe = document.createElement("iframe");
+            iframe.style.display = "none";
+            iframe.src = "ihavecpu-updater://update";
+            document.body.appendChild(iframe);
+            setTimeout(() => iframe.remove(), 3000);
+          } catch {}
+          chrome.runtime.sendMessage({ type: "RELOAD_EXTENSION_NOW", waitForDiskSync: true }).catch(() => {});
+          setTimeout(() => location.reload(), 1500);
           return;
         }
         const openLink = event.target.closest("[data-open-extensions]");
@@ -1034,7 +1057,12 @@
   }
 
   let lastPageKey = "";
+  let syncIntervalId = null;
   function syncPageControls() {
+    if (!chrome?.runtime?.id) {
+      if (syncIntervalId) clearInterval(syncIntervalId);
+      return;
+    }
     const isIhc = /^https:\/\/(www\.)?ihavecpu\.com\//i.test(location.href);
     const snap = isIhc ? extract() : { title: "", price: "", sku: "" };
     const singleProduct = isIhc ? isSingleProductDetailPage(snap) : false;
@@ -1047,7 +1075,7 @@
   syncPageControls();
   window.addEventListener("popstate", syncPageControls);
   window.addEventListener("hashchange", syncPageControls);
-  window.setInterval(syncPageControls, 500);
+  syncIntervalId = window.setInterval(syncPageControls, 500);
 
   chrome.storage.local.get({ updateStatus: null }).then(({ updateStatus }) => {
     if (updateStatus && (updateStatus.diskNeedsReload || updateStatus.remoteHasNewer)) {

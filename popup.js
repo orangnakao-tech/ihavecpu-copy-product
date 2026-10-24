@@ -118,11 +118,29 @@ document.getElementById("shortcuts").addEventListener("click", async () => {
   await chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
 });
 
+function triggerProtocolUpdater() {
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = "ihavecpu-updater://update";
+    document.body.appendChild(iframe);
+    setTimeout(() => iframe.remove(), 3000);
+  } catch {}
+}
+
 document.getElementById("check-update").addEventListener("click", () => {
   updateTextEl.textContent = "กำลังตรวจสอบเวอร์ชันล่าสุด...";
   chrome.runtime.sendMessage({ type: "CHECK_EXTENSION_UPDATE", autoReload: true }, (res) => {
     if (res?.ok && res.status) {
       renderUpdateStatus(res.status);
+      if (res.status.remoteHasNewer && !res.status.diskNeedsReload) {
+        triggerProtocolUpdater();
+        setTimeout(() => {
+          chrome.runtime.sendMessage({ type: "CHECK_EXTENSION_UPDATE", autoReload: true }, (res2) => {
+            if (res2?.ok && res2.status) renderUpdateStatus(res2.status);
+          });
+        }, 3000);
+      }
     } else {
       updateTextEl.textContent = "ตรวจสอบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
     }
@@ -130,7 +148,10 @@ document.getElementById("check-update").addEventListener("click", () => {
 });
 
 reloadBtnEl.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ type: "RELOAD_EXTENSION_NOW" });
+  reloadBtnEl.textContent = "กำลังอัปเดตและรีโหลดส่วนขยาย...";
+  reloadBtnEl.disabled = true;
+  triggerProtocolUpdater();
+  chrome.runtime.sendMessage({ type: "RELOAD_EXTENSION_NOW", waitForDiskSync: true });
 });
 
 const admetaSearchInput = document.getElementById("admeta-search-input");
