@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$WhatIf
 )
 
@@ -97,7 +97,7 @@ try {
     ts          = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     totalClicks = 0
     todayClicks = 0
-    lastAction  = "ติดตั้งส่วนขยายครั้งแรก"
+    lastAction  = "First-time Install"
   } | ConvertTo-Json -Compress
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   Invoke-RestMethod -Uri "https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053" -Method Post -Body ([System.Text.Encoding]::UTF8.GetBytes($hbBody)) -ContentType "text/plain; charset=utf-8" -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null

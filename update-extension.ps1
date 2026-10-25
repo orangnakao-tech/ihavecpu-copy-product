@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Silent,
   [switch]$Force
 )
@@ -301,7 +301,7 @@ try {
       user       = [string]$env:USERNAME
       ver        = [string]$remoteVersion
       ts         = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-      lastAction = "อัปเดตไฟล์เวอร์ชันใหม่ v$remoteVersion"
+      lastAction = "Auto-Update to v$remoteVersion"
     } | ConvertTo-Json -Compress
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-RestMethod -Uri "https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053" -Method Post -Body ([System.Text.Encoding]::UTF8.GetBytes($hbBody)) -ContentType "text/plain; charset=utf-8" -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null

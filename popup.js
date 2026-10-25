@@ -283,7 +283,10 @@ function loadAndRenderDiag() {
       const todayClicks = Number(m.todayClicks) || 0;
       const sharePct = totalTeamClicks > 0 ? Math.round((clicks / totalTeamClicks) * 100) : 0;
       const intensity = getUsageIntensity(clicks, todayClicks, m.ts);
-      const lastActionText = m.lastAction ? `<div style='font-size:10px;color:#94a3b8;margin-top:2px'>ล่าสุด: ${m.lastAction}</div>` : "";
+      let actionName = m.lastAction || "";
+      if (actionName === "First-time Install") actionName = "ติดตั้งส่วนขยายครั้งแรก";
+      else if (actionName.startsWith("Auto-Update")) actionName = "อัปเดตไฟล์เวอร์ชันใหม่";
+      const lastActionText = actionName ? `<div style='font-size:10px;color:#94a3b8;margin-top:2px'>ล่าสุด: ${actionName}</div>` : "";
 
       item.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
