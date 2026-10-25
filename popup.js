@@ -7,10 +7,10 @@ const releaseNotesVerEl = document.getElementById("release-notes-ver");
 const releaseNotesItemsEl = document.getElementById("release-notes-items");
 
 const DEFAULT_RELEASE_NOTES = [
-  "+ โหมดแพทฟอม (สีส้ม) คำนวณราคา + รีเซ็ตรายการเก่า",
-  "+ ปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",
-  "+ ค้นหารหัส SB-xxxx-xxxxx โหลดประวัติทันที",
-  "+ แก้บัครูป UPS & สินค้าลดราคา / ซ่อนปุ่มหน้าค้นหา"
+  "+ ปุ่มก๊อบปี้สเปก + ราคาขายสุทธิ Shopee / Lazada / TikTok",
+  "+ คลิกที่หัวตารางหรือช่องราคาแพลตฟอร์มเพื่อคัดลอกได้ทันที",
+  "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ",
+  "+ รองรับสินค้าทดแทน (+ทดแทน) และตารางอุปกรณ์เสริมอิสระ"
 ];
 
 const NOTE_PALETTE = [

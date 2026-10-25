@@ -525,12 +525,12 @@
       });
     } catch (error) {
       if (/extension context invalidated/i.test(error.message || "")) {
-        throw new Error("ส่วนขยายเพิ่งอัปเดต กรุณาลองคำนวณราคาสินค้าแพทฟอมอีกครั้ง");
+        throw new Error("ส่วนขยายเพิ่งอัปเดต กรุณาลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
       }
       throw error;
     }
     if (!result?.ok) {
-      throw new Error(result?.error || "เปิดหน้าคำนวณราคาสินค้าแพทฟอมไม่สำเร็จ");
+      throw new Error(result?.error || "เปิดหน้าคำนวณราคาสินค้าแพลตฟอร์มไม่สำเร็จ");
     }
     return result;
   }
@@ -552,7 +552,7 @@
     }
     await copyText(result.text);
     const specNumber = result.specNumber ? ` (${result.specNumber})` : "";
-    showToast(`คำนวณสเป็คใน AdMeta${specNumber} และคัดลอกข้อความแล้ว (โหมดแพทฟอม)`);
+    showToast(`คำนวณสเป็คใน AdMeta${specNumber} และคัดลอกข้อความแล้ว (โหมดแพลตฟอร์ม)`);
   }
 
   async function doCopy(kind = "both", isAutoRetry = false) {
@@ -569,7 +569,7 @@
 
       if (kind === "platform-calc-diy" || kind === "platform-calc-diy-reset") {
         if (!/^https:\/\/(www\.)?ihavecpu\.com\/diy\/share\/[^/]+/i.test(location.href)) {
-          throw new Error("กรุณาเปิดหน้าแชร์สเป็ค DIY ก่อนคำนวณราคาสินค้าแพทฟอม");
+          throw new Error("กรุณาเปิดหน้าแชร์สเป็ค DIY ก่อนคำนวณราคาสินค้าแพลตฟอร์ม");
         }
         const diyUrl = location.href.split("#")[0];
         const resetFirst = kind === "platform-calc-diy-reset";
@@ -577,8 +577,8 @@
         await openPlatformCalculator({ kind: "diy", diyUrl, resetFirst });
         showToast(
           resetFirst
-            ? "รีเซ็ตรายการเก่าและวางลิงก์ DIY ในหน้าคำนวณราคาแพทฟอมแล้ว"
-            : "คัดลอกลิงก์ DIY และเปิดหน้าคำนวณราคาแพทฟอมแล้ว"
+            ? "รีเซ็ตรายการเก่าและวางลิงก์ DIY ในหน้าคำนวณราคาแพลตฟอร์มแล้ว"
+            : "คัดลอกลิงก์ DIY และเปิดหน้าคำนวณราคาแพลตฟอร์มแล้ว"
         );
         return;
       }
@@ -596,7 +596,7 @@
         }
         if (kind === "platform-diy-text") {
           await copyText(formatDIYText(price));
-          showToast("คัดลอกลิงก์และราคาสเป็ค DIY แล้ว (โหมดแพทฟอม)");
+          showToast("คัดลอกลิงก์และราคาสเป็ค DIY แล้ว (โหมดแพลตฟอร์ม)");
         } else {
           await sendDIYTextToZaapi(formatDIYText(price));
         }
@@ -619,14 +619,14 @@
         if (resetFirst) {
           showToast(
             itemKind === "comset"
-              ? "รีเซ็ตรายการเก่าและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพทฟอมแล้ว"
-              : "รีเซ็ตรายการเก่าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพทฟอมแล้ว"
+              ? "รีเซ็ตรายการเก่าและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพลตฟอร์มแล้ว"
+              : "รีเซ็ตรายการเก่าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพลตฟอร์มแล้ว"
           );
         } else {
           showToast(
             itemKind === "comset"
-              ? "คัดลอกชื่อเซ็ตคอมและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพทฟอมแล้ว"
-              : "คัดลอกชื่อสินค้าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพทฟอมแล้ว"
+              ? "คัดลอกชื่อเซ็ตคอมและเพิ่มคอมเซ็ตในหน้าคำนวณราคาแพลตฟอร์มแล้ว"
+              : "คัดลอกชื่อสินค้าและเพิ่มสินค้าปกติในหน้าคำนวณราคาแพลตฟอร์มแล้ว"
           );
         }
       } else if (kind === "zaapi") {
@@ -662,10 +662,10 @@
     } catch {}
 
     const defaultNotes = [
-      "+ โหมดแพทฟอม (สีส้ม) คำนวณราคา + รีเซ็ตรายการเก่า",
-      "+ ปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",
-      "+ ค้นหารหัส SB-xxxx-xxxxx โหลดประวัติทันที",
-      "+ แก้บัครูป UPS & สินค้าลดราคา / ซ่อนปุ่มหน้าค้นหา"
+      "+ ปุ่มก๊อบปี้สเปก + ราคาขายสุทธิ Shopee / Lazada / TikTok",
+      "+ คลิกที่หัวตารางหรือช่องราคาแพลตฟอร์มเพื่อคัดลอกได้ทันที",
+      "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ",
+      "+ รองรับสินค้าทดแทน (+ทดแทน) และตารางอุปกรณ์เสริมอิสระ"
     ];
     const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
       ? status.releaseNotes
@@ -797,13 +797,13 @@
     const isPlatform = platformMode === "platform";
     if (isDIYShare) {
       return isPlatform
-        ? '<button data-action="platform-calc-diy">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="platform-calc-diy-reset">คำนวณพร้อมรีเซ็ตรายการเก่าออก</button>'
+        ? '<button data-action="platform-calc-diy">คำนวณราคาสินค้าแพลตฟอร์ม</button><button class="secondary" data-action="platform-calc-diy-reset">คำนวณพร้อมรีเซ็ตรายการเก่าออก</button>'
         : '<button data-action="diy-admeta-zaapi">คำนวณใน AdMeta แล้วใส่ข้อความใน Zaapi</button><button class="secondary" data-action="diy-zaapi">ใส่เฉพาะลิงก์ + ราคาใน Zaapi (ไม่ส่ง)</button>';
     }
     if (!hasProduct) return "";
     const promoBtn = isPromoSet ? '<button data-action="promo-admeta-upgrade">เปิดเซ็ตโปรใน AdMeta เพื่ออัปเกรด/คำนวณราคา</button>' : "";
     return isPlatform
-      ? `${promoBtn}<button data-action="platform-calc-product">คำนวณราคาสินค้าแพทฟอม</button><button class="secondary" data-action="platform-calc-product-reset">คำนวณพร้อมรีเซ็ตรายการเก่าออก</button>`
+      ? `${promoBtn}<button data-action="platform-calc-product">คำนวณราคาสินค้าแพลตฟอร์ม</button><button class="secondary" data-action="platform-calc-product-reset">คำนวณพร้อมรีเซ็ตรายการเก่าออก</button>`
       : `${promoBtn}<button data-action="zaapi">เตรียมข้อความ + รูปใน Zaapi (ไม่ส่ง)</button><button class="secondary" data-action="text">คัดลอกเพื่อเพิ่มสินค้า</button>`;
   }
 
@@ -830,18 +830,18 @@
       wrap.dataset.platformMode = isPlatform ? "platform" : "zaapi";
       const titleEl = wrap.querySelector(".ihc-panel-title");
       if (titleEl) {
-        titleEl.textContent = isPlatform ? "iHAVECPU • โหมดแพทฟอม" : "iHAVECPU • เครื่องมือสินค้า";
+        titleEl.textContent = isPlatform ? "iHAVECPU • โหมดแพลตฟอร์ม" : "iHAVECPU • เครื่องมือสินค้า";
       }
       const switchBtn = wrap.querySelector('button[data-panel-action="switch-platform"]');
       if (switchBtn) {
         switchBtn.title = isPlatform
           ? "สลับกลับเป็น โหมด Zaapi (สีแดง)"
-          : "สลับเป็น โหมดแพทฟอม (ธีมสีส้ม — คัดลอกอย่างเดียว)";
+          : "สลับเป็น โหมดแพลตฟอร์ม (ธีมสีส้ม — คัดลอกอย่างเดียว)";
       }
     }
     if (launcher) {
       launcher.dataset.platformMode = isPlatform ? "platform" : "zaapi";
-      launcher.textContent = isPlatform ? "เปิด iHAVECPU (แพทฟอม)" : "เปิด iHAVECPU";
+      launcher.textContent = isPlatform ? "เปิด iHAVECPU (แพลตฟอร์ม)" : "เปิด iHAVECPU";
     }
   }
 
@@ -915,7 +915,7 @@
     }
     const wrap = document.createElement("div");
     wrap.id = BUTTON_ID;
-    wrap.innerHTML = `<div class="ihc-panel-header"><span class="ihc-panel-title">iHAVECPU • เครื่องมือสินค้า</span><span class="ihc-panel-controls"><button type="button" data-panel-action="switch-platform" aria-label="สลับโหมด Zaapi / แพทฟอม" title="สลับเป็น โหมดแพทฟอม (ธีมสีส้ม — คัดลอกอย่างเดียว)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="display:block;pointer-events:none;"><path d="M21 12a9 9 0 0 0-15.36-6.36L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.36 6.36L21 16"/><path d="M16 16h5v5"/></svg></button><button type="button" data-panel-action="collapse" aria-label="ย่อหน้าต่าง">−</button><button type="button" data-panel-action="hide" aria-label="ซ่อนหน้าต่าง">×</button></span></div><div class="ihc-panel-search"><input type="text" class="ihc-admeta-search-input" placeholder="ค้นหางบ/สเป็คใน AdMeta (เช่น งบ 20000 รวมจอ)" aria-label="ค้นหางบหรือสเป็คใน AdMeta" /><button type="button" data-panel-search="submit">ค้นหา</button></div><div class="ihc-panel-body">${actions}</div>`;
+    wrap.innerHTML = `<div class="ihc-panel-header"><span class="ihc-panel-title">iHAVECPU • เครื่องมือสินค้า</span><span class="ihc-panel-controls"><button type="button" data-panel-action="switch-platform" aria-label="สลับโหมด Zaapi / แพลตฟอร์ม" title="สลับเป็น โหมดแพลตฟอร์ม (ธีมสีส้ม — คัดลอกอย่างเดียว)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="display:block;pointer-events:none;"><path d="M21 12a9 9 0 0 0-15.36-6.36L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 15.36 6.36L21 16"/><path d="M16 16h5v5"/></svg></button><button type="button" data-panel-action="collapse" aria-label="ย่อหน้าต่าง">−</button><button type="button" data-panel-action="hide" aria-label="ซ่อนหน้าต่าง">×</button></span></div><div class="ihc-panel-search"><input type="text" class="ihc-admeta-search-input" placeholder="ค้นหางบ/สเป็คใน AdMeta (เช่น งบ 20000 รวมจอ)" aria-label="ค้นหางบหรือสเป็คใน AdMeta" /><button type="button" data-panel-search="submit">ค้นหา</button></div><div class="ihc-panel-body">${actions}</div>`;
     const searchInputEl = wrap.querySelector(".ihc-admeta-search-input");
     if (searchInputEl) {
       searchInputEl.addEventListener("keydown", async (event) => {
@@ -949,7 +949,7 @@
           chrome.storage.local.set({ platformMode: currentPlatformMode }).catch(() => {});
           showToast(
             currentPlatformMode === "platform"
-              ? "เปลี่ยนเป็น โหมดแพทฟอม (ธีมสีส้ม — คัดลอกอย่างเดียว)"
+              ? "เปลี่ยนเป็น โหมดแพลตฟอร์ม (ธีมสีส้ม — คัดลอกอย่างเดียว)"
               : "เปลี่ยนเป็น โหมด Zaapi (ธีมสีแดง)"
           );
           return;

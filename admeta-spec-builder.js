@@ -783,6 +783,361 @@
     }
   }
 
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {}
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    ta.style.pointerEvents = "none";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    if (!ok) throw new Error("คัดลอกข้อความไม่สำเร็จ");
+    return true;
+  }
+
+  function extractPriceDigits(priceStr) {
+    if (!priceStr) return "";
+    const clean = String(priceStr).replace(/[^\d.,]/g, "").replace(/\.00$/, "").trim();
+    return clean;
+  }
+
+  function buildPlatformCopyText(platformName, baseTitle, additionalItems, netPriceStr) {
+    const cleanPrice = extractPriceDigits(netPriceStr);
+    const formattedPrice = cleanPrice ? `= ${cleanPrice}.-` : "";
+
+    const lines = [];
+    const cleanBase = String(baseTitle || "").replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim();
+    if (cleanBase) {
+      lines.push(`${platformName} | ${cleanBase}`);
+    } else {
+      lines.push(platformName);
+    }
+
+    const validAdditionals = (additionalItems || [])
+      .map((item) => String(item || "").replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim())
+      .filter((item) => item.length > 0);
+
+    if (validAdditionals.length > 0) {
+      lines.push("");
+      validAdditionals.forEach((item) => lines.push(item));
+    }
+
+    if (formattedPrice) {
+      lines.push("");
+      lines.push(formattedPrice);
+    }
+
+    return lines.join("\n");
+  }
+
+  function extractPlatformCalculatorItems() {
+    const rowInputs = findPlatformSearchRowInputs();
+    if (rowInputs.length > 0) {
+      let pcSetTitle = "";
+      const additionalItems = [];
+
+      rowInputs.forEach((inp) => {
+        const val = (inp.value || "").trim();
+        if (!val) return;
+        const isComset = rowHasPcSetBadge(inp) || /^\[?\s*PC\s*SET/i.test(val);
+        if (isComset && !pcSetTitle) {
+          pcSetTitle = val.replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim();
+        } else {
+          additionalItems.push(val);
+        }
+      });
+
+      if (!pcSetTitle && rowInputs[0] && (rowInputs[0].value || "").trim()) {
+        pcSetTitle = rowInputs[0].value.trim();
+        additionalItems.shift();
+      }
+
+      return { baseTitle: pcSetTitle, additionalItems };
+    }
+
+    const table = document.querySelector("table");
+    if (table) {
+      const rows = [...table.querySelectorAll("tbody tr, tr")].filter((r) => {
+        const txt = (r.innerText || "").trim();
+        return !txt.includes("ราคาลงขายสุทธิ") && !/Shopee|Lazada|TikTok/i.test(txt);
+      });
+
+      let baseTitle = "";
+      const additionalItems = [];
+
+      rows.forEach((r, idx) => {
+        const firstCell = r.querySelector("td, th");
+        if (!firstCell) return;
+        const rawTxt = (firstCell.innerText || "").trim().split("\n")[0].trim();
+        const cleanLine = rawTxt.replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim();
+        if (!cleanLine) return;
+        if ((idx === 0 && !baseTitle) || /PC\s*SET/i.test(rawTxt)) {
+          if (!baseTitle) baseTitle = cleanLine;
+          else additionalItems.push(cleanLine);
+        } else {
+          additionalItems.push(cleanLine);
+        }
+      });
+
+      return { baseTitle, additionalItems };
+    }
+
+    return { baseTitle: "", additionalItems: [] };
+  }
+
+  function findPlatformNetPrices() {
+    const netLabelEl = [...document.querySelectorAll("*")].find((el) => {
+      const txt = (el.innerText || "").trim();
+      return (txt.startsWith("ราคาลงขายสุทธิ") || txt.includes("ราคาลงขายสุทธิ")) && txt.length < 150 && el.children.length <= 2;
+    }) || [...document.querySelectorAll("*")].find((el) => {
+      const txt = (el.innerText || "").trim();
+      return txt.includes("ราคาลงขายสุทธิ") && txt.length < 150;
+    });
+
+    if (!netLabelEl) return null;
+
+    const netRow = netLabelEl.closest("tr, [class*='row'], div");
+    if (!netRow) return null;
+
+    let shopeeCell = null;
+    let lazadaCell = null;
+    let tiktokCell = null;
+
+    const tr = netLabelEl.closest("tr");
+    if (tr) {
+      const allCells = [...tr.querySelectorAll("td, th")];
+      if (allCells.length >= 4) {
+        shopeeCell = allCells[allCells.length - 3];
+        lazadaCell = allCells[allCells.length - 2];
+        tiktokCell = allCells[allCells.length - 1];
+      }
+    }
+
+    if (!shopeeCell || !lazadaCell || !tiktokCell) {
+      const candidatePriceEls = [...netRow.querySelectorAll("*")].filter((el) => {
+        if (netLabelEl.contains(el)) return false;
+        if (el.children.length > 0) return false;
+        const txt = (el.innerText || "").trim();
+        if (!/\d{1,3}(?:,\d{3})+/.test(txt)) return false;
+        const num = parseFloat(txt.replace(/[^\d.]/g, ""));
+        return !isNaN(num) && num > 500;
+      });
+
+      if (candidatePriceEls.length >= 3) {
+        shopeeCell = candidatePriceEls[0];
+        lazadaCell = candidatePriceEls[1];
+        tiktokCell = candidatePriceEls[2];
+      }
+    }
+
+    const shopeePrice = shopeeCell ? extractPriceDigits(shopeeCell.innerText) : "";
+    const lazadaPrice = lazadaCell ? extractPriceDigits(lazadaCell.innerText) : "";
+    const tiktokPrice = tiktokCell ? extractPriceDigits(tiktokCell.innerText) : "";
+
+    return {
+      shopeePrice,
+      lazadaPrice,
+      tiktokPrice,
+      shopeeCell,
+      lazadaCell,
+      tiktokCell,
+      netRow
+    };
+  }
+
+  function findPlatformHeaders() {
+    const candidateHeaders = [...document.querySelectorAll("th, [role='columnheader'], [class*='header'], span, div")].filter((el) => {
+      const txt = (el.innerText || "").trim();
+      return (/Shopee/i.test(txt) || /Lazada/i.test(txt) || /TikTok/i.test(txt)) && txt.length < 60 && el.children.length <= 3;
+    });
+
+    const shopeeHeader = candidateHeaders.find((el) => /Shopee/i.test(el.innerText || ""));
+    const lazadaHeader = candidateHeaders.find((el) => /Lazada/i.test(el.innerText || ""));
+    const tiktokHeader = candidateHeaders.find((el) => /TikTok/i.test(el.innerText || ""));
+
+    return { shopeeHeader, lazadaHeader, tiktokHeader };
+  }
+
+  function attachPlatformClick(el, platformName, getPriceFn) {
+    if (!el || el.dataset.ihcCopyAttached === platformName) return;
+    el.dataset.ihcCopyAttached = platformName;
+    el.style.cursor = "pointer";
+    el.setAttribute("title", `📋 คลิกเพื่อก๊อบปี้ข้อความสำหรับ ${platformName}`);
+    el.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const price = getPriceFn();
+      await copyPlatformSpecText(platformName, price, el);
+    });
+  }
+
+  async function copyPlatformSpecText(platformName, priceStr, triggerEl) {
+    try {
+      const { baseTitle, additionalItems } = extractPlatformCalculatorItems();
+      const textToCopy = buildPlatformCopyText(platformName, baseTitle, additionalItems, priceStr);
+      await copyText(textToCopy);
+      const cleanPrice = extractPriceDigits(priceStr);
+      showStatus(`✓ คัดลอกข้อความสำหรับ ${platformName}${cleanPrice ? ' (' + cleanPrice + '.-)' : ''} เรียบร้อยแล้ว!`, false);
+
+      if (triggerEl) {
+        triggerEl.classList.add("ihc-copied-flash");
+        setTimeout(() => {
+          triggerEl.classList.remove("ihc-copied-flash");
+        }, 800);
+      }
+    } catch (error) {
+      showStatus(error.message || `คัดลอกข้อความ ${platformName} ไม่สำเร็จ`, true);
+    }
+  }
+
+  function ensurePlatformCopyStyles() {
+    if (document.getElementById("ihc-platform-copy-styles")) return;
+    const style = document.createElement("style");
+    style.id = "ihc-platform-copy-styles";
+    style.textContent = `
+      [data-ihc-copy-attached] {
+        cursor: pointer !important;
+        transition: transform 0.12s ease, filter 0.12s ease, background 0.15s ease;
+      }
+      [data-ihc-copy-attached]:hover {
+        filter: brightness(0.96) !important;
+        transform: scale(1.015);
+      }
+      .ihc-copied-flash {
+        animation: ihcCopyPulse 0.8s ease;
+      }
+      @keyframes ihcCopyPulse {
+        0% { transform: scale(1); outline: 3px solid #22c55e; }
+        50% { transform: scale(1.05); outline: 3px solid #22c55e; }
+        100% { transform: scale(1); outline: 3px solid transparent; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function ensurePlatformCalculatorCopyFeatures() {
+    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+      document.getElementById("ihc-platform-copy-toolbar")?.remove();
+      return;
+    }
+
+    const netData = findPlatformNetPrices();
+    if (!netData || !netData.shopeePrice) {
+      document.getElementById("ihc-platform-copy-toolbar")?.remove();
+      return;
+    }
+
+    ensurePlatformCopyStyles();
+
+    const { shopeePrice, lazadaPrice, tiktokPrice, shopeeCell, lazadaCell, tiktokCell, netRow } = netData;
+
+    const headers = findPlatformHeaders();
+    attachPlatformClick(headers.shopeeHeader, "Shopee", () => findPlatformNetPrices()?.shopeePrice || shopeePrice);
+    attachPlatformClick(headers.lazadaHeader, "Lazada", () => findPlatformNetPrices()?.lazadaPrice || lazadaPrice);
+    attachPlatformClick(headers.tiktokHeader, "TikTok", () => findPlatformNetPrices()?.tiktokPrice || tiktokPrice);
+
+    attachPlatformClick(shopeeCell, "Shopee", () => findPlatformNetPrices()?.shopeePrice || shopeePrice);
+    attachPlatformClick(lazadaCell, "Lazada", () => findPlatformNetPrices()?.lazadaPrice || lazadaPrice);
+    attachPlatformClick(tiktokCell, "TikTok", () => findPlatformNetPrices()?.tiktokPrice || tiktokPrice);
+
+    const table = document.querySelector("table");
+    if (table) {
+      const ths = [...table.querySelectorAll("th")];
+      const sIdx = ths.findIndex((th) => /Shopee/i.test(th.innerText || ""));
+      const lIdx = ths.findIndex((th) => /Lazada/i.test(th.innerText || ""));
+      const tIdx = ths.findIndex((th) => /TikTok/i.test(th.innerText || ""));
+
+      if (sIdx >= 0 && lIdx >= 0 && tIdx >= 0) {
+        const bodyRows = [...table.querySelectorAll("tbody tr")];
+        bodyRows.forEach((r) => {
+          const cells = [...r.querySelectorAll("td, th")];
+          if (cells[sIdx]) attachPlatformClick(cells[sIdx], "Shopee", () => findPlatformNetPrices()?.shopeePrice || shopeePrice);
+          if (cells[lIdx]) attachPlatformClick(cells[lIdx], "Lazada", () => findPlatformNetPrices()?.lazadaPrice || lazadaPrice);
+          if (cells[tIdx]) attachPlatformClick(cells[tIdx], "TikTok", () => findPlatformNetPrices()?.tiktokPrice || tiktokPrice);
+        });
+      }
+    }
+
+    let toolbar = document.getElementById("ihc-platform-copy-toolbar");
+    const targetParent = (netRow && netRow.closest("table")?.parentElement) ||
+                         document.querySelector("table")?.parentElement ||
+                         (netRow && netRow.parentElement);
+
+    if (!targetParent) return;
+
+    if (!toolbar) {
+      toolbar = document.createElement("div");
+      toolbar.id = "ihc-platform-copy-toolbar";
+      Object.assign(toolbar.style, {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: "10px",
+        margin: "12px 0",
+        padding: "10px 14px",
+        background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
+        border: "1.5px solid #e2e8f0",
+        borderRadius: "10px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)"
+      });
+      toolbar.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px;color:#1e293b;">
+          <span style="font-size:16px;">📋</span>
+          <span>ก๊อบปี้สเปก + ราคาขายสุทธิ:</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button type="button" data-copy-platform="Shopee" title="คลิกเพื่อก๊อบปี้ข้อความ Shopee" style="background:#ee4d2d;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(238,77,45,0.25);transition:all 0.15s ease;">
+            <span>🟠 ก๊อบปี้ Shopee</span>
+            <span class="ihc-price-badge" style="background:rgba(255,255,255,0.25);padding:1px 6px;border-radius:6px;font-size:12px;"></span>
+          </button>
+          <button type="button" data-copy-platform="Lazada" title="คลิกเพื่อก๊อบปี้ข้อความ Lazada" style="background:#0f146d;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(15,20,109,0.25);transition:all 0.15s ease;">
+            <span>🔵 ก๊อบปี้ Lazada</span>
+            <span class="ihc-price-badge" style="background:rgba(255,255,255,0.25);padding:1px 6px;border-radius:6px;font-size:12px;"></span>
+          </button>
+          <button type="button" data-copy-platform="TikTok" title="คลิกเพื่อก๊อบปี้ข้อความ TikTok" style="background:#000000;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(0,0,0,0.25);transition:all 0.15s ease;">
+            <span>⚫ ก๊อบปี้ TikTok</span>
+            <span class="ihc-price-badge" style="background:rgba(255,255,255,0.25);padding:1px 6px;border-radius:6px;font-size:12px;"></span>
+          </button>
+        </div>
+      `;
+
+      toolbar.addEventListener("click", async (event) => {
+        const btn = event.target.closest("button[data-copy-platform]");
+        if (!btn) return;
+        event.preventDefault();
+        const platform = btn.dataset.copyPlatform;
+        const latestNet = findPlatformNetPrices();
+        const price = platform === "Shopee" ? latestNet?.shopeePrice
+                    : platform === "Lazada" ? latestNet?.lazadaPrice
+                    : latestNet?.tiktokPrice;
+        await copyPlatformSpecText(platform, price, btn);
+      });
+
+      const tableEl = targetParent.querySelector("table") || targetParent;
+      if (tableEl && tableEl !== targetParent) {
+        targetParent.insertBefore(toolbar, tableEl);
+      } else {
+        targetParent.prepend(toolbar);
+      }
+    }
+
+    const shopeeBtnBadge = toolbar.querySelector('button[data-copy-platform="Shopee"] .ihc-price-badge');
+    const lazadaBtnBadge = toolbar.querySelector('button[data-copy-platform="Lazada"] .ihc-price-badge');
+    const tiktokBtnBadge = toolbar.querySelector('button[data-copy-platform="TikTok"] .ihc-price-badge');
+    if (shopeeBtnBadge) shopeeBtnBadge.textContent = shopeePrice ? `${shopeePrice}.-` : "";
+    if (lazadaBtnBadge) lazadaBtnBadge.textContent = lazadaPrice ? `${lazadaPrice}.-` : "";
+    if (tiktokBtnBadge) tiktokBtnBadge.textContent = tiktokPrice ? `${tiktokPrice}.-` : "";
+  }
+
   function setPlatformInputValue(input, value, pressEnter = false) {
     if (!input) return;
     input.focus();
@@ -1421,7 +1776,7 @@
 
   async function addPlatformCalculatorItem({ kind, title, diyUrl, resetFirst = false }) {
     if (isLoginPage()) {
-      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพทฟอมอีกครั้ง");
+      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
     }
     if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
       throw new Error("กรุณาเปิดหน้าคำนวณราคาแพลตฟอร์มก่อน");
@@ -1429,7 +1784,7 @@
 
     await waitFor(() => {
       if (isLoginPage()) {
-        throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพทฟอมอีกครั้ง");
+        throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
       }
       return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต/i);
     }, 15000, "ไม่พบปุ่มเพิ่มสินค้าบนหน้าคำนวณราคาแพลตฟอร์ม");
@@ -1545,10 +1900,10 @@
     } catch {}
 
     const defaultNotes = [
-      "+ โหมดแพทฟอม (สีส้ม) คำนวณราคา + รีเซ็ตรายการเก่า",
-      "+ ปุ่มรีเซ็ตรายการใหม่ในหน้าคำนวณแพลตฟอร์ม",
-      "+ ค้นหารหัส SB-xxxx-xxxxx โหลดประวัติทันที",
-      "+ แก้บัครูป UPS & สินค้าลดราคา / ซ่อนปุ่มหน้าค้นหา"
+      "+ ปุ่มก๊อบปี้สเปก + ราคาขายสุทธิ Shopee / Lazada / TikTok",
+      "+ คลิกที่หัวตารางหรือช่องราคาแพลตฟอร์มเพื่อคัดลอกได้ทันที",
+      "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ",
+      "+ รองรับสินค้าทดแทน (+ทดแทน) และตารางอุปกรณ์เสริมอิสระ"
     ];
     const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
       ? status.releaseNotes
@@ -1771,6 +2126,7 @@
   }, true);
 
   ensurePlatformCalculatorResetButton();
+  ensurePlatformCalculatorCopyFeatures();
   ensureSpecBuilderToPlatformButton();
   const calcResetIntervalId = window.setInterval(() => {
     if (!chrome?.runtime?.id) {
@@ -1778,6 +2134,7 @@
       return;
     }
     ensurePlatformCalculatorResetButton();
+    ensurePlatformCalculatorCopyFeatures();
     ensureSpecBuilderToPlatformButton();
   }, 700);
 })();
