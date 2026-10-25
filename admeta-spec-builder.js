@@ -953,7 +953,7 @@
   }
 
   function extractSpecBuilderUpgradedItems() {
-    const upgradedItems = [];
+    const rawItems = [];
     const processedRows = new Set();
 
     const oldPartElements = [...document.querySelectorAll("*")].filter((el) => {
@@ -972,34 +972,48 @@
       if (rowEl && !processedRows.has(rowEl)) {
         processedRows.add(rowEl);
         const item = parseUpgradedRow(rowEl);
-        if (item) upgradedItems.push(item);
+        if (item) rawItems.push(item);
       }
     }
 
-    const priceElements = [...document.querySelectorAll("*")].filter((el) => {
-      if (!el || el.children.length > 0) return false;
-      const t = (el.innerText || el.textContent || "").trim();
-      return /^\+\s*[\d,]+$/.test(t);
-    });
+    if (rawItems.length === 0) {
+      const priceElements = [...document.querySelectorAll("*")].filter((el) => {
+        if (!el || el.children.length > 0) return false;
+        const t = (el.innerText || el.textContent || "").trim();
+        return /^\+\s*[\d,]+$/.test(t);
+      });
 
-    for (const pEl of priceElements) {
-      let rowEl = pEl.closest("tr, [class*='row'], div");
-      while (rowEl && rowEl !== document.body) {
-        const r = rowEl.getBoundingClientRect();
-        if (r.height >= 35 && r.height <= 250 && r.width >= 350) break;
-        rowEl = rowEl.parentElement;
-      }
-      if (rowEl && !processedRows.has(rowEl)) {
-        const pText = (rowEl.innerText || "");
-        if (!/ส่วนต่างอัปเกรด|ยอดสุทธิชำระ/i.test(pText)) {
-          processedRows.add(rowEl);
-          const item = parseUpgradedRow(rowEl);
-          if (item) upgradedItems.push(item);
+      for (const pEl of priceElements) {
+        let rowEl = pEl.closest("tr, [class*='row'], div");
+        while (rowEl && rowEl !== document.body) {
+          const r = rowEl.getBoundingClientRect();
+          if (r.height >= 35 && r.height <= 250 && r.width >= 350) break;
+          rowEl = rowEl.parentElement;
+        }
+        if (rowEl && !processedRows.has(rowEl)) {
+          const pText = (rowEl.innerText || "");
+          if (!/ส่วนต่างอัปเกรด|ยอดสุทธิชำระ/i.test(pText)) {
+            processedRows.add(rowEl);
+            const item = parseUpgradedRow(rowEl);
+            if (item) rawItems.push(item);
+          }
         }
       }
     }
 
-    return upgradedItems;
+    const seenTitles = new Set();
+    const finalItems = [];
+    for (const it of rawItems) {
+      if (!it || !it.title) continue;
+      const key = (it.rawTitle || it.title).toLowerCase().replace(/\s+/g, " ").trim();
+      if (!seenTitles.has(key)) {
+        seenTitles.add(key);
+        it.qty = 1;
+        finalItems.push(it);
+      }
+    }
+
+    return finalItems;
   }
 
   function extractSpecBuilderData() {
@@ -1092,6 +1106,46 @@
     targetActionBtn.parentElement.appendChild(btn);
   }
 
+  async function selectPlatformComsetFromDropdown(targetInput, specCode) {
+    const code = (specCode || "").trim().toLowerCase();
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < 3500) {
+      const candidates = [
+        ...document.querySelectorAll(
+          ".list-group-item, [role='option'], .dropdown-item, [class*='item' i], [class*='option' i], [class*='suggestion' i], button, a, li, div"
+        )
+      ].filter((el) => {
+        if (!el || el === targetInput || el.contains(targetInput)) return false;
+        if (el.tagName === "INPUT" || el.id?.startsWith("ihc-")) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+        const r = el.getBoundingClientRect();
+        if (r.width < 100 || r.height < 18 || r.height > 120) return false;
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        return t.includes(code) || (code.length >= 6 && t.includes(code.substring(0, 6)));
+      });
+
+      if (candidates.length > 0) {
+        const itemToClick = candidates[0];
+        itemToClick.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+        itemToClick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        itemToClick.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        itemToClick.click();
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    targetInput.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowDown", code: "ArrowDown", keyCode: 40, which: 40 }));
+    targetInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "ArrowDown", code: "ArrowDown", keyCode: 40, which: 40 }));
+    await new Promise((r) => setTimeout(r, 150));
+    targetInput.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    targetInput.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    targetInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    return false;
+  }
+
   async function populatePlatformCalculatorFromSpec({ baseSpecTitle, basePrice, upgradedItems, resetFirst = true }) {
     if (isLoginPage()) {
       throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
@@ -1115,7 +1169,8 @@
 
     if (baseSpecTitle && baseSpecTitle.trim()) {
       const cleanBaseTitle = baseSpecTitle.trim();
-      showStatus(`กำลังเพิ่มคอมเซ็ต "${cleanBaseTitle.substring(0, 32)}..."...`, false);
+      const specCode = cleanBaseTitle.split(/\s+/)[0];
+      showStatus(`กำลังเพิ่มคอมเซ็ต "${specCode}"...`, false);
 
       const beforeSet = new Set(findPlatformSearchRowInputs());
       const comsetBtn = findPlatformButton(/เพิ่มคอมเซ็ต/);
@@ -1135,29 +1190,12 @@
         targetInput.scrollIntoView({ behavior: "smooth", block: "center" });
       } catch {}
 
-      setPlatformInputValue(targetInput, cleanBaseTitle, false);
+      setPlatformInputValue(targetInput, specCode, false);
+      await new Promise((r) => setTimeout(r, 300));
+
+      await selectPlatformComsetFromDropdown(targetInput, specCode);
+
       await new Promise((r) => setTimeout(r, 400));
-
-      const specCode = cleanBaseTitle.split(/\s+/)[0].toLowerCase();
-      const dropdownItems = [...document.querySelectorAll(".list-group-item, [role='option'], .dropdown-item, li, button, a")]
-        .filter((el) => {
-          if (!el || el === targetInput) return false;
-          const style = window.getComputedStyle(el);
-          if (style.display === "none" || style.visibility === "hidden") return false;
-          const t = (el.innerText || el.textContent || "").trim().toLowerCase();
-          return t.includes(specCode) && el.offsetWidth > 100;
-        });
-
-      if (dropdownItems.length > 0) {
-        dropdownItems[0].click();
-        await new Promise((r) => setTimeout(r, 350));
-      } else {
-        targetInput.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
-        targetInput.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
-        targetInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
-      }
-
-      await new Promise((r) => setTimeout(r, 350));
       const { priceInput } = findPlatformRowInputs(targetInput);
       if (priceInput && (!priceInput.value || priceInput.value.trim() === "" || priceInput.value.trim() === "0") && basePrice) {
         setPlatformInputValue(priceInput, String(basePrice), false);
@@ -1202,7 +1240,16 @@
       }
     }
 
-    showStatus(`นำเข้าสเป็คหลักและรายการอัปเกรด ${upgradedItems?.length || 0} รายการเรียบร้อยแล้ว!`, false);
+    await new Promise((r) => setTimeout(r, 450));
+    const startCalcBtn = findPlatformButton(/เริ่มคำนวณราคาขายสุทธิ|เริ่มคำนวณราคา/i);
+    if (startCalcBtn) {
+      try {
+        startCalcBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch {}
+      startCalcBtn.click();
+    }
+
+    showStatus(`นำเข้าสเป็คหลักและรายการอัปเกรด ${upgradedItems?.length || 0} รายการพร้อมคำนวณราคาขายสุทธิแล้ว!`, false);
     return { ok: true, upgradedCount: upgradedItems?.length || 0 };
   }
 
