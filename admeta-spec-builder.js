@@ -1106,37 +1106,81 @@
     targetActionBtn.parentElement.appendChild(btn);
   }
 
+  function findPlatformComsetPopupCard(targetInput, specCode) {
+    const inputRect = targetInput.getBoundingClientRect();
+    const code = (specCode || "").trim().toLowerCase();
+
+    const allCandidates = [...document.querySelectorAll("*")].filter((el) => {
+      if (!el || el === targetInput || el.contains(targetInput) || targetInput.contains(el)) return false;
+      if (["INPUT", "HTML", "BODY", "TABLE", "TBODY", "TR", "THEAD"].includes(el.tagName)) return false;
+      if (el.id?.startsWith("ihc-")) return false;
+
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+
+      const r = el.getBoundingClientRect();
+      if (r.top < inputRect.top + 5) return false;
+      if (r.top > inputRect.bottom + 120) return false;
+      if (r.right < inputRect.left - 20 || r.left > inputRect.right + 50) return false;
+      if (r.width < 120 || r.height < 25 || r.height > 200) return false;
+
+      const text = (el.innerText || el.textContent || "").trim().toLowerCase();
+      const hasCode = code && text.includes(code);
+      const hasBranchOrPrice = text.includes("นครนายก") || text.includes("สาขา") || text.includes("สต็อก") || /฿\s*[\d,]+/.test(text);
+
+      return hasCode || hasBranchOrPrice;
+    });
+
+    if (allCandidates.length === 0) return null;
+
+    const cardWithImg = allCandidates.find((el) => el.querySelector("img") && el.children.length >= 2);
+    if (cardWithImg) return cardWithImg;
+
+    allCandidates.sort((a, b) => (b.querySelector("img") ? 1 : 0) - (a.querySelector("img") ? 1 : 0));
+    return allCandidates[0];
+  }
+
+  function clickPopupCardDeep(el) {
+    if (!el) return;
+    const opts = { bubbles: true, cancelable: true, view: window };
+
+    const innerTarget = el.querySelector("img") || el.querySelector("span, p, div") || el;
+    innerTarget.dispatchEvent(new PointerEvent("pointerdown", opts));
+    innerTarget.dispatchEvent(new MouseEvent("mousedown", opts));
+    innerTarget.dispatchEvent(new PointerEvent("pointerup", opts));
+    innerTarget.dispatchEvent(new MouseEvent("mouseup", opts));
+    innerTarget.click();
+
+    if (innerTarget !== el) {
+      el.dispatchEvent(new PointerEvent("pointerdown", opts));
+      el.dispatchEvent(new MouseEvent("mousedown", opts));
+      el.dispatchEvent(new PointerEvent("pointerup", opts));
+      el.dispatchEvent(new MouseEvent("mouseup", opts));
+      el.click();
+    }
+  }
+
   async function selectPlatformComsetFromDropdown(targetInput, specCode) {
     const code = (specCode || "").trim().toLowerCase();
     const startedAt = Date.now();
 
-    while (Date.now() - startedAt < 3500) {
-      const candidates = [
-        ...document.querySelectorAll(
-          ".list-group-item, [role='option'], .dropdown-item, [class*='item' i], [class*='option' i], [class*='suggestion' i], button, a, li, div"
-        )
-      ].filter((el) => {
-        if (!el || el === targetInput || el.contains(targetInput)) return false;
-        if (el.tagName === "INPUT" || el.id?.startsWith("ihc-")) return false;
-        const style = window.getComputedStyle(el);
-        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
-        const r = el.getBoundingClientRect();
-        if (r.width < 100 || r.height < 18 || r.height > 120) return false;
-        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
-        return t.includes(code) || (code.length >= 6 && t.includes(code.substring(0, 6)));
-      });
-
-      if (candidates.length > 0) {
-        const itemToClick = candidates[0];
-        itemToClick.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-        itemToClick.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-        itemToClick.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
-        itemToClick.click();
+    while (Date.now() - startedAt < 5000) {
+      const card = findPlatformComsetPopupCard(targetInput, code);
+      if (card) {
+        clickPopupCardDeep(card);
+        await new Promise((r) => setTimeout(r, 250));
+        const rowEl = getPlatformRowElement(targetInput);
+        const rowText = (rowEl?.innerText || "");
+        if (/CPU\s*:|Mainboard\s*:|Graphic\s*card\s*:/i.test(rowText)) {
+          return true;
+        }
+        clickPopupCardDeep(card);
         return true;
       }
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 100));
     }
 
+    targetInput.focus();
     targetInput.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowDown", code: "ArrowDown", keyCode: 40, which: 40 }));
     targetInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "ArrowDown", code: "ArrowDown", keyCode: 40, which: 40 }));
     await new Promise((r) => setTimeout(r, 150));
