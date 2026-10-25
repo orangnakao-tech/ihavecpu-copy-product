@@ -1,4 +1,4 @@
-﻿param(
+param(
   [switch]$Silent,
   [switch]$Force
 )
@@ -256,7 +256,7 @@ try {
     }
   }
 
-  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines\.ps1|.*เช็กจำนวนเครื่อง.*\.bat|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md)$'
+  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|.*(เช็ก|เครื่อง|admin).*\.bat|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*โปรเจ็คลับ.*|GEMINI\.md|\.agents|monitor)$'
   $filesToCopy = Get-ChildItem -LiteralPath $sourceFolder -Force | Where-Object { $_.Name -notmatch $excludedPattern }
 
   foreach ($destDir in $targetDirs) {

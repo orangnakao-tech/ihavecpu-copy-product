@@ -1,4 +1,4 @@
-﻿param(
+param(
   [switch]$WhatIf
 )
 
@@ -73,7 +73,7 @@ if (-not (Test-Path -LiteralPath $permanentDirectory)) {
   New-Item -ItemType Directory -Path $permanentDirectory -Force | Out-Null
 }
 if ($sourceDirectory -ne $permanentDirectory) {
-  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines\.ps1|.*เช็กจำนวนเครื่อง.*\.bat|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip)$'
+  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|.*(เช็ก|เครื่อง|admin).*\.bat|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip|.*โปรเจ็คลับ.*|GEMINI\.md|\.agents|monitor)$'
   Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object { $_.Name -notmatch $excludedPattern } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $permanentDirectory -Recurse -Force
   }
@@ -86,9 +86,6 @@ try {
   } | ConvertTo-Json -Compress
   $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText((Join-Path $permanentDirectory "device-info.json"), $devInfo, $utf8NoBom)
-  if ($sourceDirectory -and (Test-Path -LiteralPath (Join-Path $sourceDirectory "manifest.json")) -and -not (Test-Path -LiteralPath (Join-Path $sourceDirectory "publish-update.ps1"))) {
-    [System.IO.File]::WriteAllText((Join-Path $sourceDirectory "device-info.json"), $devInfo, $utf8NoBom)
-  }
   $hbBody = @{
     id          = "$($env:COMPUTERNAME)_$($env:USERNAME)"
     pc          = [string]$env:COMPUTERNAME
