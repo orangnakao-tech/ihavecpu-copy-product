@@ -241,6 +241,29 @@
     return Number.isFinite(num) ? num : NaN;
   }
 
+  function isCaseProduct(product) {
+    const title = (product?.title || "").trim();
+    if (!title) return false;
+    // ถ้าเป็นพัดลมเคสโดยเฉพาะ ไม่ใช่ตัวเคส
+    if (/^FAN\s*\(/i.test(title) || /^(?:พัดลมเคส|FAN\s+CASE)/i.test(title)) {
+      return false;
+    }
+    // รูปแบบมาตรฐานของ iHAVECPU: CASE (เคส) ..., CASE ..., เคส ...
+    if (/^(?:CASE|เคส)\b/i.test(title) || /\(เคส\)/i.test(title)) {
+      return true;
+    }
+    if (/\b(?:COMPUTER\s*CASE|PC\s*CASE|ITX\s*CASE|ATX\s*CASE|CHASSIS)\b/i.test(title)) {
+      return true;
+    }
+    try {
+      const breadcrumb = (document.querySelector("nav, [class*='breadcrumb']")?.innerText || "").trim();
+      if (/(?:^|\s|>|\/)(?:CASE|เคส)(?:$|\s|>|\/)/i.test(breadcrumb) && !/พัดลม/i.test(breadcrumb)) {
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
   function formatProductText(product) {
     const lines = [product.title];
     if (product.sku) {
@@ -251,7 +274,9 @@
 
     const numericPrice = parsePriceNumber(product.price);
     let result = base;
-    if (Number.isFinite(numericPrice) && numericPrice > 0 && numericPrice < 5000) {
+    const isCase = isCaseProduct(product);
+    // เคส (CASE) ไม่ต้องบวกค่าส่ง 50 บาท แม้ราคาต่ำกว่า 5,000 บาท
+    if (!isCase && Number.isFinite(numericPrice) && numericPrice > 0 && numericPrice < 5000) {
       const total = numericPrice + 50;
       const hasComma = String(product.price || "").includes(",");
       const totalStr = Number.isInteger(total)
@@ -352,7 +377,8 @@
   async function fillZaapi(product) {
     const formattedText = formatProductText(product);
     const numericPrice = parsePriceNumber(product.price);
-    const hasShipping50 = Number.isFinite(numericPrice) && numericPrice > 0 && numericPrice < 5000;
+    const isCase = isCaseProduct(product);
+    const hasShipping50 = !isCase && Number.isFinite(numericPrice) && numericPrice > 0 && numericPrice < 5000;
     const result = await chrome.runtime.sendMessage({
       type: "PREPARE_ZAAPI_PRODUCT",
       text: formattedText,

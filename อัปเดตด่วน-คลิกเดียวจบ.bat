@@ -11,3 +11,4 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointMan
 echo.
 echo เสร็จสิ้นเรียบร้อย! ส่วนขยายใน Chrome จะรีโหลดตัวเองอัตโนมัติ
 timeout /t 5 >nul
+

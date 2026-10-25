@@ -7,10 +7,10 @@ const releaseNotesVerEl = document.getElementById("release-notes-ver");
 const releaseNotesItemsEl = document.getElementById("release-notes-items");
 
 const DEFAULT_RELEASE_NOTES = [
+  "+ เคส (CASE) ไม่ต้องบวกค่าส่ง 50 บาท แม้ราคาต่ำกว่า 5,000 บาท",
   "+ อัปเดตอัตโนมัติเบื้องหลังเต็มรูปแบบ (Silent Background Auto-Update)",
   "+ ปิดกล่องแจ้งเตือนอัปเดตและ Badge บนหน้าเว็บ ไม่ต้องกดอัปเดตเอง",
-  "+ แก้ไข Error Extension context invalidated บน Zaapi",
-  "+ เซ็ตโปรตัดรายละเอียดสเปกย่อยออก เหลือเฉพาะชื่อเซ็ตและราคา"
+  "+ แก้ไข Error Extension context invalidated บน Zaapi"
 ];
 
 const NOTE_PALETTE = [
