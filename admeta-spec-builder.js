@@ -894,13 +894,35 @@
     return "";
   }
 
-  function parseUpgradedRow(rowEl) {
+  function getSingleComponentRow(el) {
+    let curr = el;
+    while (curr && curr !== document.body) {
+      const changeBtns = [...curr.querySelectorAll("button, [role='button']")].filter((b) =>
+        /เปลี่ยน|เพิ่มสินค้า/.test((b.innerText || b.textContent || "").trim())
+      );
+      if (changeBtns.length === 1) {
+        const r = curr.getBoundingClientRect();
+        if (r.height >= 35 && r.height <= 130 && r.width >= 300) {
+          return curr;
+        }
+      }
+      curr = curr.parentElement;
+    }
+    return el.closest("tr, [class*='row'], div") || el;
+  }
+
+  function parseComponentRow(rowEl) {
     const fullText = (rowEl.innerText || "").trim();
     if (!fullText) return null;
 
+    const isReplacement = /ทดแทน/i.test(fullText) || [...rowEl.querySelectorAll("i, svg, span")].some((icon) =>
+      /replace|refresh|sync|reload/i.test(icon.className || "")
+    );
+
     const priceMatch = fullText.match(/\+\s*([\d,]+)/);
-    if (!priceMatch) return null;
-    const upgradePrice = priceMatch[1].replace(/,/g, "");
+    if (!isReplacement && !priceMatch) return null;
+
+    const upgradePrice = isReplacement ? 0 : (priceMatch ? priceMatch[1].replace(/,/g, "") : 0);
 
     const hasOldPart = /เดิม\s*:/i.test(fullText);
     const hasUndoBtn = [...rowEl.querySelectorAll("button, [role='button'], a, i, svg")].some((b) => {
@@ -908,7 +930,8 @@
       const txt = (b.innerText || b.textContent || "").trim();
       return /↺|undo|reset|คืนค่า|ย้อนกลับ/.test(cls) || /↺|คืนค่า|ย้อนกลับ/.test(txt);
     });
-    if (!hasOldPart && !hasUndoBtn && !/\+\s*[\d,]+/.test(fullText)) return null;
+
+    if (!hasOldPart && !hasUndoBtn && !isReplacement && !priceMatch) return null;
 
     let newTitle = "";
     const lines = fullText.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -916,7 +939,7 @@
 
     if (oldLineIndex !== -1 && lines[oldLineIndex + 1]) {
       const nextLine = lines[oldLineIndex + 1];
-      if (!/^\+\s*[\d,]+/.test(nextLine) && !/^(เปลี่ยน|เพิ่มสินค้า|↺)$/i.test(nextLine)) {
+      if (!/^\+\s*[\d,]+/.test(nextLine) && !/^(เปลี่ยน|เพิ่มสินค้า|↺|ทดแทน)$/i.test(nextLine)) {
         newTitle = nextLine;
       }
     }
@@ -925,7 +948,7 @@
       const candidates = lines.filter((l) => {
         if (/^เดิม\s*:/i.test(l)) return false;
         if (/^\+\s*[\d,]+/.test(l)) return false;
-        if (/^(เปลี่ยน|เพิ่มสินค้า|รีเซ็ต|ลบ|คืนค่า|↺|แนะนำอัปเกรด|ลดงบ)$/i.test(l)) return false;
+        if (/^(เปลี่ยน|เพิ่มสินค้า|รีเซ็ต|ลบ|คืนค่า|↺|แนะนำอัปเกรด|ลดงบ|ทดแทน)$/i.test(l)) return false;
         if (/^(CPU|Mainboard|VGA|RAM|SSD|PSU|CASE|CS|Monitor|อุปกรณ์เสริม)\s*:?$/i.test(l)) return false;
         return l.length > 5;
       });
@@ -941,20 +964,119 @@
 
     if (!newTitle || newTitle.length < 3) return null;
 
-    const cleanTitle = newTitle.replace(/^\+?\s*อั[พฟ]เกรด\s*/i, "").trim();
-    const formattedTitle = `+อัพเกรด ${cleanTitle}`;
+    const cleanTitle = newTitle.replace(/^\+?\s*(?:อั[พฟ]เกรด|ทดแทน)\s*/i, "").trim();
+    const prefix = isReplacement ? "+ทดแทน " : "+อัพเกรด ";
+    const formattedTitle = `${prefix}${cleanTitle}`;
 
     return {
       title: formattedTitle,
       rawTitle: cleanTitle,
       price: upgradePrice,
-      qty: 1
+      qty: 1,
+      isReplacement
     };
+  }
+
+  function extractStandaloneAccessories() {
+    const items = [];
+
+    const headerEls = [...document.querySelectorAll("*")].filter((el) => {
+      if (!el || el.children.length > 3) return false;
+      const t = (el.innerText || el.textContent || "").trim();
+      return t.includes("อุปกรณ์เสริม และ สินค้าอิสระ") || t.includes("อุปกรณ์เสริมและสินค้าอิสระ");
+    });
+
+    if (headerEls.length === 0) return items;
+
+    let sectionContainer = headerEls[0].closest(".card, [class*='card'], [class*='section'], div");
+    while (sectionContainer && sectionContainer !== document.body) {
+      if (sectionContainer.querySelectorAll("input, button").length >= 5) break;
+      sectionContainer = sectionContainer.parentElement;
+    }
+    if (!sectionContainer) sectionContainer = document.body;
+
+    const candidateRows = [...sectionContainer.querySelectorAll("tr, [class*='row'], div")].filter((el) => {
+      if (!el || el === sectionContainer) return false;
+      const r = el.getBoundingClientRect();
+      if (r.height < 30 || r.height > 120 || r.width < 350) return false;
+      const t = (el.innerText || "");
+      const hasPrice = /[฿B]\s*[\d,]+/.test(t) || /[\d,]+\s*[฿B]/.test(t);
+      const hasDeleteOrQty = el.querySelector("button, [role='button'], i, svg") &&
+        [...el.querySelectorAll("button, i, svg")].some((b) => /trash|delete|remove|ลบ/.test((b.className || "") + (b.title || "")));
+      return hasPrice && hasDeleteOrQty && !t.includes("อุปกรณ์เสริม และ สินค้าอิสระ");
+    });
+
+    const seenRows = new Set();
+    for (const row of candidateRows) {
+      let isNested = false;
+      for (const other of seenRows) {
+        if (other.contains(row) || row.contains(other)) {
+          isNested = true;
+          break;
+        }
+      }
+      if (isNested) continue;
+      seenRows.add(row);
+
+      const fullText = (row.innerText || "").trim();
+      const lines = fullText.split("\n").map((l) => l.trim()).filter(Boolean);
+
+      const priceMatches = [...fullText.matchAll(/[฿B]\s*([\d,]+)/g)];
+      let unitPrice = 0;
+      if (priceMatches.length > 0) {
+        unitPrice = parseInt(priceMatches[0][1].replace(/,/g, ""), 10) || 0;
+      }
+
+      let qty = 1;
+      const qtyInput = row.querySelector("input[type='number'], input");
+      if (qtyInput && qtyInput.value) {
+        qty = parseInt(qtyInput.value, 10) || 1;
+      } else {
+        const qtyMatch = fullText.match(/(?:[-–]\s*)(\d+)(?:\s*[+＋])/);
+        if (qtyMatch) qty = parseInt(qtyMatch[1], 10) || 1;
+      }
+
+      const titleCandidates = lines.filter((l) => {
+        if (/^[฿B]\s*[\d,]+/.test(l)) return false;
+        if (/^[\d,]+\s*[฿B]/.test(l)) return false;
+        if (/^[-+–+1-9]$/.test(l)) return false;
+        if (/^(ลบ|แก้ไข|เพิ่ม|ราคา|จำนวน|ราคารวม)$/i.test(l)) return false;
+        if (l.includes("นครนายก") || l.includes("สินค้าเหลือน้อย")) return false;
+        return l.length > 8;
+      });
+
+      if (titleCandidates.length > 0 && unitPrice > 0) {
+        const cleanTitle = titleCandidates[0].replace(/^[฿B\d,\s]+/, "").trim();
+        items.push({
+          title: cleanTitle,
+          rawTitle: cleanTitle,
+          price: unitPrice,
+          qty: qty,
+          isAccessory: true
+        });
+      }
+    }
+
+    return items;
   }
 
   function extractSpecBuilderUpgradedItems() {
     const rawItems = [];
     const processedRows = new Set();
+
+    const changeBtns = [...document.querySelectorAll("button, [role='button']")].filter((b) => {
+      const t = (b.innerText || b.textContent || "").trim();
+      return t === "เปลี่ยน" || t === "เพิ่มสินค้า";
+    });
+
+    for (const btn of changeBtns) {
+      const rowEl = getSingleComponentRow(btn);
+      if (rowEl && !processedRows.has(rowEl)) {
+        processedRows.add(rowEl);
+        const item = parseComponentRow(rowEl);
+        if (item) rawItems.push(item);
+      }
+    }
 
     const oldPartElements = [...document.querySelectorAll("*")].filter((el) => {
       if (!el || el.children.length > 3) return false;
@@ -963,41 +1085,11 @@
     });
 
     for (const el of oldPartElements) {
-      let rowEl = el.closest("tr, [class*='row'], div");
-      while (rowEl && rowEl !== document.body) {
-        const r = rowEl.getBoundingClientRect();
-        if (r.height >= 35 && r.height <= 250 && r.width >= 350) break;
-        rowEl = rowEl.parentElement;
-      }
+      const rowEl = getSingleComponentRow(el);
       if (rowEl && !processedRows.has(rowEl)) {
         processedRows.add(rowEl);
-        const item = parseUpgradedRow(rowEl);
+        const item = parseComponentRow(rowEl);
         if (item) rawItems.push(item);
-      }
-    }
-
-    if (rawItems.length === 0) {
-      const priceElements = [...document.querySelectorAll("*")].filter((el) => {
-        if (!el || el.children.length > 0) return false;
-        const t = (el.innerText || el.textContent || "").trim();
-        return /^\+\s*[\d,]+$/.test(t);
-      });
-
-      for (const pEl of priceElements) {
-        let rowEl = pEl.closest("tr, [class*='row'], div");
-        while (rowEl && rowEl !== document.body) {
-          const r = rowEl.getBoundingClientRect();
-          if (r.height >= 35 && r.height <= 250 && r.width >= 350) break;
-          rowEl = rowEl.parentElement;
-        }
-        if (rowEl && !processedRows.has(rowEl)) {
-          const pText = (rowEl.innerText || "");
-          if (!/ส่วนต่างอัปเกรด|ยอดสุทธิชำระ/i.test(pText)) {
-            processedRows.add(rowEl);
-            const item = parseUpgradedRow(rowEl);
-            if (item) rawItems.push(item);
-          }
-        }
       }
     }
 
@@ -1011,6 +1103,11 @@
         it.qty = 1;
         finalItems.push(it);
       }
+    }
+
+    const accessories = extractStandaloneAccessories();
+    for (const acc of accessories) {
+      finalItems.push(acc);
     }
 
     return finalItems;
@@ -1249,7 +1346,7 @@
     if (Array.isArray(upgradedItems) && upgradedItems.length > 0) {
       for (let i = 0; i < upgradedItems.length; i++) {
         const item = upgradedItems[i];
-        showStatus(`กำลังเพิ่มรายการอัปเกรด (${i + 1}/${upgradedItems.length}): ${item.title.substring(0, 32)}...`, false);
+        showStatus(`กำลังเพิ่มรายการสินค้า (${i + 1}/${upgradedItems.length}): ${item.title.substring(0, 32)}...`, false);
 
         const beforeSet = new Set(findPlatformSearchRowInputs());
         const normalBtn = findPlatformButton(/เพิ่มสินค้าปกติ/);
@@ -1273,7 +1370,7 @@
         await new Promise((r) => setTimeout(r, 200));
 
         const { priceInput, qtyInput } = findPlatformRowInputs(normalInput);
-        if (priceInput && item.price) {
+        if (priceInput && item.price !== undefined && item.price !== null) {
           setPlatformInputValue(priceInput, String(item.price), false);
         }
         if (qtyInput && item.qty) {
