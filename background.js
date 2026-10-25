@@ -558,6 +558,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "OPEN_PLATFORM_CALC_WITH_SPEC_DATA") {
+    recordUsageAction("ส่งสเปกไปคำนวณราคาแพลตฟอร์ม");
+    openPlatformCalculatorWithSpecData(message.data || {})
+      .then((result) => {
+        sendResponse(result);
+      })
+      .catch((error) => {
+        sendResponse({ error: error.message || "ส่งข้อมูลไปยังหน้าคำนวณราคาแพลตฟอร์มไม่สำเร็จ" });
+        if (sender.tab?.id) {
+          showTabStatus(sender.tab.id, error.message || "ส่งข้อมูลไปยังหน้าคำนวณราคาแพลตฟอร์มไม่สำเร็จ", true);
+        }
+      });
+    return true;
+  }
+
   if (message?.type === "SEARCH_ADMETA_SPEC") {
     recordUsageAction("ค้นหาสเป็คใน AdMeta");
     runWithAutoResetRetry(sender.tab?.id, () => searchSpecInAdmetaTab(message.searchTerm))
@@ -1273,6 +1288,61 @@ async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "",
   }
   await showTabStatus(readyCalcTab.id, statusText);
   return { ok: true, kind, tabId: readyCalcTab.id };
+}
+
+async function openPlatformCalculatorWithSpecData({ baseSpecTitle, basePrice, upgradedItems }) {
+  const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
+  let readyCalcTab = admetaTabs
+    .filter((tab) => /^https:\/\/admeta\.me\/admin\/platform\/calculator(?:\/.*|\?.*|#.*)?$/i.test(tab.url || ""))
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+
+  if (!readyCalcTab?.id) {
+    const loginTab = admetaTabs.find((tab) =>
+      /\/(?:login|signin|sign-in|auth)(?:\/|$)/i.test(new URL(tab.url || "https://admeta.me/").pathname)
+    );
+    if (loginTab?.id) {
+      await chrome.tabs.update(loginTab.id, { active: true });
+      if (loginTab.windowId) {
+        await chrome.windows.update(loginTab.windowId, { focused: true }).catch(() => {});
+      }
+      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาแพลตฟอร์มอีกครั้ง");
+    }
+    readyCalcTab = await chrome.tabs.create({
+      url: "https://admeta.me/admin/platform/calculator",
+      active: true
+    });
+  } else {
+    await chrome.tabs.update(readyCalcTab.id, { active: true });
+    if (readyCalcTab.windowId) {
+      await chrome.windows.update(readyCalcTab.windowId, { focused: true }).catch(() => {});
+    }
+  }
+
+  let result;
+  try {
+    result = await sendPlatformCalculatorMessage(readyCalcTab.id, {
+      type: "POPULATE_PLATFORM_CALC_FROM_SPEC",
+      baseSpecTitle,
+      basePrice,
+      upgradedItems,
+      resetFirst: true
+    });
+  } catch (error) {
+    if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
+    const errorMessage = `ติดต่อหน้าคำนวณราคาแพลตฟอร์ม AdMeta ไม่สำเร็จ (${error.message})`;
+    await showTabStatus(readyCalcTab.id, errorMessage, true);
+    throw new Error(errorMessage);
+  }
+
+  if (!result?.ok) {
+    const errorMessage = result?.error || "นำเข้าสเปกและรายการอัปเกรดไม่สำเร็จ";
+    await showTabStatus(readyCalcTab.id, errorMessage, true);
+    throw new Error(errorMessage);
+  }
+
+  const upgradeCount = upgradedItems?.length || 0;
+  await showTabStatus(readyCalcTab.id, `นำเข้าสเป็คหลักและรายการอัปเกรด ${upgradeCount} รายการเรียบร้อยแล้ว`);
+  return { ok: true, tabId: readyCalcTab.id };
 }
 
 async function getProductData(tabId) {

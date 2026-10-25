@@ -805,6 +805,407 @@
     }
   }
 
+  function getPlatformRowElement(inputEl) {
+    let rowEl = inputEl.closest("tr");
+    if (!rowEl) {
+      let curr = inputEl.parentElement;
+      while (curr && curr !== document.body) {
+        const r = curr.getBoundingClientRect();
+        if (r.height > 120) break;
+        if (r.width > inputEl.getBoundingClientRect().width + 150) rowEl = curr;
+        curr = curr.parentElement;
+      }
+    }
+    return rowEl || inputEl.closest("div") || inputEl.parentElement?.parentElement;
+  }
+
+  function findPlatformRowInputs(targetInput) {
+    const rowEl = getPlatformRowElement(targetInput);
+    if (!rowEl) return { titleInput: targetInput, qtyInput: null, priceInput: null };
+
+    const allVisible = [...rowEl.querySelectorAll("input")].filter(isVisibleInput);
+    const otherInputs = allVisible.filter((inp) => inp !== targetInput);
+
+    let qtyInput = null;
+    let priceInput = null;
+
+    for (const inp of otherInputs) {
+      const ph = (inp.placeholder || "").toLowerCase();
+      const type = (inp.type || "").toLowerCase();
+      const val = (inp.value || "").trim();
+      const rect = inp.getBoundingClientRect();
+
+      if (ph.includes("จำนวน") || ph.includes("qty") || (val === "1" && rect.width < 90) || (type === "number" && rect.width < 90)) {
+        if (!qtyInput) qtyInput = inp;
+      } else if (ph.includes("ราคา") || ph.includes("price") || ph.includes("บาท") || rect.width >= 80) {
+        if (!priceInput) priceInput = inp;
+      }
+    }
+
+    if (!qtyInput && otherInputs.length >= 1) qtyInput = otherInputs[0];
+    if (!priceInput && otherInputs.length >= 2) priceInput = otherInputs[1];
+
+    return { titleInput: targetInput, qtyInput, priceInput };
+  }
+
+  function extractSpecBuilderSummaryPrices() {
+    const text = document.body.innerText || "";
+    const baseMatch = text.match(/ราคาสเปกตั้งต้น\s*(?:[:\n\r\t ]*)[฿B]?\s*([\d,]+)/i);
+    const diffMatch = text.match(/ส่วนต่างอัปเกรด\s*(?:[:\n\r\t ]*)[+฿B]?\s*([\d,]+)/i);
+    const totalMatch = text.match(/ยอดสุทธิชำระ\s*(?:[:\n\r\t ]*)[฿B]?\s*([\d,]+)/i);
+    return {
+      basePrice: baseMatch ? baseMatch[1].replace(/,/g, "") : "",
+      diffPrice: diffMatch ? diffMatch[1].replace(/,/g, "") : "",
+      totalPrice: totalMatch ? totalMatch[1].replace(/,/g, "") : ""
+    };
+  }
+
+  function extractBaseSpecTitle() {
+    const badges = [...document.querySelectorAll("*")].filter((el) => {
+      if (!el || el.children.length > 2) return false;
+      const t = (el.innerText || el.textContent || "").trim();
+      return t === "สเปกคอมพิวเตอร์ตั้งต้น" || t === "รายการสเปกคอมพิวเตอร์ตั้งต้น";
+    });
+
+    for (const badge of badges) {
+      let container = badge.closest(".card, [class*='card'], [class*='box'], div");
+      while (container && container !== document.body) {
+        const r = container.getBoundingClientRect();
+        if (r.height >= 50 && r.width >= 350) break;
+        container = container.parentElement;
+      }
+      if (container) {
+        const lines = (container.innerText || "").split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l && !/^(สเปกคอมพิวเตอร์ตั้งต้น|รายการสเปกคอมพิวเตอร์ตั้งต้น|ค้นหาและเลือก|เลือกสเปกใหม่|1)$/i.test(l));
+
+        const titleLine = lines.find((l) => l.length >= 15 && (/^[A-Z0-9]+-[A-Z0-9]+/i.test(l) || l.includes("AMD") || l.includes("INTEL") || l.includes("RTX") || l.includes("GTX")));
+        if (titleLine) return titleLine;
+        if (lines[0] && lines[0].length >= 10) return lines[0];
+      }
+    }
+
+    const fullText = document.body.innerText || "";
+    const match = fullText.match(/(?:สเปกคอมพิวเตอร์ตั้งต้น|รายการสเปกคอมพิวเตอร์ตั้งต้น)\s*[\n\r]+([^\n\r]+)/i);
+    if (match && match[1].trim()) {
+      return match[1].trim();
+    }
+
+    return "";
+  }
+
+  function parseUpgradedRow(rowEl) {
+    const fullText = (rowEl.innerText || "").trim();
+    if (!fullText) return null;
+
+    const priceMatch = fullText.match(/\+\s*([\d,]+)/);
+    if (!priceMatch) return null;
+    const upgradePrice = priceMatch[1].replace(/,/g, "");
+
+    const hasOldPart = /เดิม\s*:/i.test(fullText);
+    const hasUndoBtn = [...rowEl.querySelectorAll("button, [role='button'], a, i, svg")].some((b) => {
+      const cls = `${b.className || ""} ${b.getAttribute("title") || ""} ${b.getAttribute("aria-label") || ""}`.toLowerCase();
+      const txt = (b.innerText || b.textContent || "").trim();
+      return /↺|undo|reset|คืนค่า|ย้อนกลับ/.test(cls) || /↺|คืนค่า|ย้อนกลับ/.test(txt);
+    });
+    if (!hasOldPart && !hasUndoBtn && !/\+\s*[\d,]+/.test(fullText)) return null;
+
+    let newTitle = "";
+    const lines = fullText.split("\n").map((l) => l.trim()).filter(Boolean);
+    const oldLineIndex = lines.findIndex((l) => /^เดิม\s*:/i.test(l));
+
+    if (oldLineIndex !== -1 && lines[oldLineIndex + 1]) {
+      const nextLine = lines[oldLineIndex + 1];
+      if (!/^\+\s*[\d,]+/.test(nextLine) && !/^(เปลี่ยน|เพิ่มสินค้า|↺)$/i.test(nextLine)) {
+        newTitle = nextLine;
+      }
+    }
+
+    if (!newTitle) {
+      const candidates = lines.filter((l) => {
+        if (/^เดิม\s*:/i.test(l)) return false;
+        if (/^\+\s*[\d,]+/.test(l)) return false;
+        if (/^(เปลี่ยน|เพิ่มสินค้า|รีเซ็ต|ลบ|คืนค่า|↺|แนะนำอัปเกรด|ลดงบ)$/i.test(l)) return false;
+        if (/^(CPU|Mainboard|VGA|RAM|SSD|PSU|CASE|CS|Monitor|อุปกรณ์เสริม)\s*:?$/i.test(l)) return false;
+        return l.length > 5;
+      });
+      if (candidates.length > 0) {
+        newTitle = candidates[0];
+      }
+    }
+
+    newTitle = newTitle
+      .replace(/^(?:CPU|Mainboard|VGA|RAM|SSD|PSU|CASE|CS|Monitor)\s*:\s*/i, "")
+      .replace(/^\+\s*[\d,]+\s*/, "")
+      .trim();
+
+    if (!newTitle || newTitle.length < 3) return null;
+
+    const cleanTitle = newTitle.replace(/^\+?\s*อั[พฟ]เกรด\s*/i, "").trim();
+    const formattedTitle = `+อัพเกรด ${cleanTitle}`;
+
+    return {
+      title: formattedTitle,
+      rawTitle: cleanTitle,
+      price: upgradePrice,
+      qty: 1
+    };
+  }
+
+  function extractSpecBuilderUpgradedItems() {
+    const upgradedItems = [];
+    const processedRows = new Set();
+
+    const oldPartElements = [...document.querySelectorAll("*")].filter((el) => {
+      if (!el || el.children.length > 3) return false;
+      const t = el.innerText || el.textContent || "";
+      return /เดิม\s*:/i.test(t);
+    });
+
+    for (const el of oldPartElements) {
+      let rowEl = el.closest("tr, [class*='row'], div");
+      while (rowEl && rowEl !== document.body) {
+        const r = rowEl.getBoundingClientRect();
+        if (r.height >= 35 && r.height <= 250 && r.width >= 350) break;
+        rowEl = rowEl.parentElement;
+      }
+      if (rowEl && !processedRows.has(rowEl)) {
+        processedRows.add(rowEl);
+        const item = parseUpgradedRow(rowEl);
+        if (item) upgradedItems.push(item);
+      }
+    }
+
+    const priceElements = [...document.querySelectorAll("*")].filter((el) => {
+      if (!el || el.children.length > 0) return false;
+      const t = (el.innerText || el.textContent || "").trim();
+      return /^\+\s*[\d,]+$/.test(t);
+    });
+
+    for (const pEl of priceElements) {
+      let rowEl = pEl.closest("tr, [class*='row'], div");
+      while (rowEl && rowEl !== document.body) {
+        const r = rowEl.getBoundingClientRect();
+        if (r.height >= 35 && r.height <= 250 && r.width >= 350) break;
+        rowEl = rowEl.parentElement;
+      }
+      if (rowEl && !processedRows.has(rowEl)) {
+        const pText = (rowEl.innerText || "");
+        if (!/ส่วนต่างอัปเกรด|ยอดสุทธิชำระ/i.test(pText)) {
+          processedRows.add(rowEl);
+          const item = parseUpgradedRow(rowEl);
+          if (item) upgradedItems.push(item);
+        }
+      }
+    }
+
+    return upgradedItems;
+  }
+
+  function extractSpecBuilderData() {
+    const prices = extractSpecBuilderSummaryPrices();
+    const baseSpecTitle = extractBaseSpecTitle();
+    const upgradedItems = extractSpecBuilderUpgradedItems();
+    return {
+      baseSpecTitle,
+      basePrice: prices.basePrice,
+      diffPrice: prices.diffPrice,
+      totalPrice: prices.totalPrice,
+      upgradedItems
+    };
+  }
+
+  function ensureSpecBuilderToPlatformButton() {
+    if (location.hostname !== "admeta.me" || !/^\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(location.pathname)) {
+      document.getElementById("ihc-spec-to-platform-calc-btn")?.remove();
+      return;
+    }
+
+    if (document.getElementById("ihc-spec-to-platform-calc-btn")) return;
+
+    const targetActionBtn = findPlatformButton(/คำนวณบิล/) || findPlatformButton(/พิมพ์\s*A6/);
+    if (!targetActionBtn || !targetActionBtn.parentElement) return;
+
+    const btn = document.createElement("button");
+    btn.id = "ihc-spec-to-platform-calc-btn";
+    btn.type = "button";
+    btn.innerHTML = `<span style="font-size:15px;">🛒</span> <span>คำนวณราคาแพลตฟอร์ม</span>`;
+    Object.assign(btn.style, {
+      marginLeft: "8px",
+      padding: "8px 16px",
+      borderRadius: "8px",
+      border: "none",
+      background: "linear-gradient(135deg, #f97316 0%, #ea580c 100%)",
+      color: "#ffffff",
+      font: "700 14px Arial,Tahoma,sans-serif",
+      cursor: "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      boxShadow: "0 2px 8px rgba(234, 88, 12, 0.35)",
+      transition: "all 0.15s ease"
+    });
+
+    btn.addEventListener("mouseenter", () => {
+      btn.style.filter = "brightness(1.08)";
+      btn.style.transform = "translateY(-1px)";
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.filter = "none";
+      btn.style.transform = "none";
+    });
+
+    btn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const specData = extractSpecBuilderData();
+      if (!specData.baseSpecTitle && (!specData.upgradedItems || specData.upgradedItems.length === 0)) {
+        showStatus("ไม่พบข้อมูลสเปกคอมพิวเตอร์ กรุณาเลือกสเปกตั้งต้นก่อน", true);
+        return;
+      }
+
+      btn.disabled = true;
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = `<span>⏳</span> <span>กำลังส่งไปหน้าคำนวณราคา...</span>`;
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: "OPEN_PLATFORM_CALC_WITH_SPEC_DATA",
+          data: specData
+        });
+        if (!response?.ok) {
+          showStatus(response?.error || "ส่งข้อมูลไปยังหน้าคำนวณราคาแพลตฟอร์มไม่สำเร็จ", true);
+        } else {
+          showStatus("ส่งสเปกและรายการอัปเกรดไปยังหน้าคำนวณราคาแพลตฟอร์มแล้ว", false);
+        }
+      } catch (err) {
+        showStatus(err.message || "ส่งข้อมูลไปยังหน้าคำนวณราคาแพลตฟอร์มไม่สำเร็จ", true);
+      } finally {
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.innerHTML = oldHtml;
+        }, 1200);
+      }
+    });
+
+    targetActionBtn.parentElement.appendChild(btn);
+  }
+
+  async function populatePlatformCalculatorFromSpec({ baseSpecTitle, basePrice, upgradedItems, resetFirst = true }) {
+    if (isLoginPage()) {
+      throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
+    }
+    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+      throw new Error("กรุณาเปิดหน้าคำนวณราคาแพลตฟอร์มก่อน");
+    }
+
+    await waitFor(() => {
+      if (isLoginPage()) {
+        throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
+      }
+      return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต/i);
+    }, 15000, "ไม่พบปุ่มเพิ่มสินค้าบนหน้าคำนวณราคาแพลตฟอร์ม");
+
+    if (resetFirst) {
+      showStatus("กำลังรีเซ็ตรายการเก่าในหน้าคำนวณราคา...", false);
+      await clearPlatformCalculatorItems();
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    if (baseSpecTitle && baseSpecTitle.trim()) {
+      const cleanBaseTitle = baseSpecTitle.trim();
+      showStatus(`กำลังเพิ่มคอมเซ็ต "${cleanBaseTitle.substring(0, 32)}..."...`, false);
+
+      const beforeSet = new Set(findPlatformSearchRowInputs());
+      const comsetBtn = findPlatformButton(/เพิ่มคอมเซ็ต/);
+      if (!comsetBtn) throw new Error("ไม่พบปุ่ม 'เพิ่มคอมเซ็ต'");
+      comsetBtn.click();
+
+      const targetInput = await waitFor(() => {
+        const currentRowInputs = findPlatformSearchRowInputs();
+        const newRowInput = currentRowInputs.find((inp) => !beforeSet.has(inp));
+        if (newRowInput) return newRowInput;
+        const emptyRowInput = currentRowInputs[currentRowInputs.length - 1];
+        if (emptyRowInput && (emptyRowInput.value || "").trim() === "") return emptyRowInput;
+        return null;
+      }, 10000, "กดเพิ่มคอมเซ็ตแล้วแต่ไม่พบช่องค้นหาชื่อสินค้า");
+
+      try {
+        targetInput.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch {}
+
+      setPlatformInputValue(targetInput, cleanBaseTitle, false);
+      await new Promise((r) => setTimeout(r, 400));
+
+      const specCode = cleanBaseTitle.split(/\s+/)[0].toLowerCase();
+      const dropdownItems = [...document.querySelectorAll(".list-group-item, [role='option'], .dropdown-item, li, button, a")]
+        .filter((el) => {
+          if (!el || el === targetInput) return false;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden") return false;
+          const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+          return t.includes(specCode) && el.offsetWidth > 100;
+        });
+
+      if (dropdownItems.length > 0) {
+        dropdownItems[0].click();
+        await new Promise((r) => setTimeout(r, 350));
+      } else {
+        targetInput.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+        targetInput.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+        targetInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+      }
+
+      await new Promise((r) => setTimeout(r, 350));
+      const { priceInput } = findPlatformRowInputs(targetInput);
+      if (priceInput && (!priceInput.value || priceInput.value.trim() === "" || priceInput.value.trim() === "0") && basePrice) {
+        setPlatformInputValue(priceInput, String(basePrice), false);
+      }
+    }
+
+    if (Array.isArray(upgradedItems) && upgradedItems.length > 0) {
+      for (let i = 0; i < upgradedItems.length; i++) {
+        const item = upgradedItems[i];
+        showStatus(`กำลังเพิ่มรายการอัปเกรด (${i + 1}/${upgradedItems.length}): ${item.title.substring(0, 32)}...`, false);
+
+        const beforeSet = new Set(findPlatformSearchRowInputs());
+        const normalBtn = findPlatformButton(/เพิ่มสินค้าปกติ/);
+        if (!normalBtn) throw new Error("ไม่พบปุ่ม 'เพิ่มสินค้าปกติ'");
+        normalBtn.click();
+
+        const normalInput = await waitFor(() => {
+          const currentRowInputs = findPlatformSearchRowInputs();
+          const newRowInput = currentRowInputs.find((inp) => !beforeSet.has(inp));
+          if (newRowInput) return newRowInput;
+          const emptyRowInput = currentRowInputs[currentRowInputs.length - 1];
+          if (emptyRowInput && (emptyRowInput.value || "").trim() === "") return emptyRowInput;
+          return null;
+        }, 10000, "กดเพิ่มสินค้าปกติแล้วแต่ไม่พบช่องค้นหาชื่อสินค้า");
+
+        try {
+          normalInput.scrollIntoView({ behavior: "smooth", block: "center" });
+        } catch {}
+
+        setPlatformInputValue(normalInput, item.title, false);
+        await new Promise((r) => setTimeout(r, 200));
+
+        const { priceInput, qtyInput } = findPlatformRowInputs(normalInput);
+        if (priceInput && item.price) {
+          setPlatformInputValue(priceInput, String(item.price), false);
+        }
+        if (qtyInput && item.qty) {
+          setPlatformInputValue(qtyInput, String(item.qty), false);
+        }
+
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+
+    showStatus(`นำเข้าสเป็คหลักและรายการอัปเกรด ${upgradedItems?.length || 0} รายการเรียบร้อยแล้ว!`, false);
+    return { ok: true, upgradedCount: upgradedItems?.length || 0 };
+  }
+
   function findPlatformDIYModalInput(beforeInputs = null) {
     const allVisible = [...document.querySelectorAll("input")].filter(isVisibleInput);
     if (beforeInputs) {
@@ -1125,6 +1526,12 @@
         .catch((error) => sendResponse({ ok: false, error: error.message || "เพิ่มรายการในหน้าคำนวณราคาแพลตฟอร์มไม่สำเร็จ" }));
       return true;
     }
+    if (message?.type === "POPULATE_PLATFORM_CALC_FROM_SPEC") {
+      populatePlatformCalculatorFromSpec(message)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error.message || "นำเข้าสเปกและรายการอัปเกรดไม่สำเร็จ" }));
+      return true;
+    }
     if (message?.type === "SHOW_STATUS") {
       showStatus(message.message || "", message.isError === true);
       return;
@@ -1176,11 +1583,13 @@
   }, true);
 
   ensurePlatformCalculatorResetButton();
+  ensureSpecBuilderToPlatformButton();
   const calcResetIntervalId = window.setInterval(() => {
     if (!chrome?.runtime?.id) {
       clearInterval(calcResetIntervalId);
       return;
     }
     ensurePlatformCalculatorResetButton();
+    ensureSpecBuilderToPlatformButton();
   }, 700);
 })();
