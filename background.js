@@ -1580,18 +1580,8 @@ async function reinjectContentScriptsIntoOpenTabs() {
 }
 
 async function broadcastUpdateNotice(statusObj) {
-  try {
-    const config = await getUpdateConfig();
-    if (config.silentUpdate || statusObj?.silentUpdate) {
-      return;
-    }
-    const tabs = await chrome.tabs.query({ url: MATCHING_URL_PATTERNS });
-    for (const tab of tabs) {
-      if (tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { type: "SHOW_UPDATE_NOTICE", status: statusObj }).catch(() => {});
-      }
-    }
-  } catch {}
+  // ผู้ใช้ต้องการให้อัปเดตอัตโนมัติเบื้องหลัง ไม่ต้องแสดงกล่องแจ้งเตือนขึ้นมาบนหน้าเว็บอีกต่อไป
+  return;
 }
 
 async function quickCheckDiskUpdate() {
@@ -1669,12 +1659,7 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {})
     }
   }
 
-  if (!config.silentUpdate && (diskNeedsReload || remoteHasNewer)) {
-    await chrome.action.setBadgeText({ text: "NEW" });
-    await chrome.action.setBadgeBackgroundColor({ color: "#d71920" });
-  } else {
-    await chrome.action.setBadgeText({ text: "" });
-  }
+  await chrome.action.setBadgeText({ text: "" }).catch(() => {});
 
   const statusObj = {
     loadedVersion,

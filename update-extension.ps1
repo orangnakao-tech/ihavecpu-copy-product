@@ -5,10 +5,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+function Safe-TestPath($path) {
+  if ([string]::IsNullOrWhiteSpace($path)) { return $false }
+  try {
+    return [bool](Test-Path -LiteralPath $path -ErrorAction SilentlyContinue)
+  } catch {
+    return $false
+  }
+}
+
 $permanentDir = Join-Path $env:LOCALAPPDATA "iHAVECPU-Copy-Product"
 
 $lockFile = Join-Path $env:TEMP "ihavecpu-ext-updater.lock"
-if (Test-Path -LiteralPath $lockFile) {
+if (Safe-TestPath $lockFile) {
   try {
     $lockAge = (Get-Date) - (Get-Item -LiteralPath $lockFile).LastWriteTime
     if ($lockAge.TotalSeconds -lt 45 -and -not $Force) {
@@ -53,9 +62,9 @@ function Compare-SemVer($v1, $v2) {
 $targetSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 [void]$targetSet.Add($permanentDir)
 
-if ($PSScriptRoot -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot "manifest.json"))) {
-  $isDevRepo = Test-Path -LiteralPath (Join-Path $PSScriptRoot "publish-update.ps1")
-  if (-not $isDevRepo -or $Force) {
+if ($PSScriptRoot -and (Safe-TestPath (Join-Path $PSScriptRoot "manifest.json"))) {
+  $isDevRepo = Safe-TestPath (Join-Path $PSScriptRoot "publish-update.ps1")
+  if (-not $isDevRepo) {
     [void]$targetSet.Add($PSScriptRoot)
   }
 }
@@ -67,20 +76,22 @@ $browserUserDataDirs = @(
   (Join-Path $env:LOCALAPPDATA "BraveSoftware\Brave-Browser\User Data")
 )
 foreach ($userDataDir in $browserUserDataDirs) {
-  if (-not (Test-Path -LiteralPath $userDataDir)) { continue }
   try {
+    if (-not (Safe-TestPath $userDataDir)) { continue }
     $prefFiles = Get-ChildItem -LiteralPath $userDataDir -Include "Preferences", "Secure Preferences" -Recurse -Depth 2 -ErrorAction SilentlyContinue
     foreach ($prefFile in $prefFiles) {
       try {
         $rawPref = [System.IO.File]::ReadAllText($prefFile.FullName, [System.Text.Encoding]::UTF8)
         $pathMatches = [regex]::Matches($rawPref, '"path"\s*:\s*"([A-Za-z]:\\(?:[^"\\]|\\.)*)"')
         foreach ($m in $pathMatches) {
-          $candidatePath = $m.Groups[1].Value -replace '\\\\', '\'
-          if ((Test-Path -LiteralPath (Join-Path $candidatePath "manifest.json")) -and
-              (Test-Path -LiteralPath (Join-Path $candidatePath "admeta-spec-builder.js")) -and
-              -not (Test-Path -LiteralPath (Join-Path $candidatePath "publish-update.ps1"))) {
-            [void]$targetSet.Add($candidatePath)
-          }
+          try {
+            $candidatePath = $m.Groups[1].Value -replace '\\\\', '\'
+            if ((Safe-TestPath (Join-Path $candidatePath "manifest.json")) -and
+                (Safe-TestPath (Join-Path $candidatePath "admeta-spec-builder.js")) -and
+                -not (Safe-TestPath (Join-Path $candidatePath "publish-update.ps1"))) {
+              [void]$targetSet.Add($candidatePath)
+            }
+          } catch {}
         }
       } catch {}
     }
@@ -93,15 +104,17 @@ $commonRoots = @(
   (Join-Path $env:USERPROFILE "Desktop")
 )
 foreach ($root in $commonRoots) {
-  if (-not (Test-Path -LiteralPath $root)) { continue }
   try {
+    if (-not (Safe-TestPath $root)) { continue }
     $foundManifests = Get-ChildItem -LiteralPath $root -Filter "manifest.json" -Recurse -Depth 3 -ErrorAction SilentlyContinue
     foreach ($mf in $foundManifests) {
-      $candDir = $mf.Directory.FullName
-      if ((Test-Path -LiteralPath (Join-Path $candDir "admeta-spec-builder.js")) -and
-          -not (Test-Path -LiteralPath (Join-Path $candDir "publish-update.ps1"))) {
-        [void]$targetSet.Add($candDir)
-      }
+      try {
+        $candDir = $mf.Directory.FullName
+        if ((Safe-TestPath (Join-Path $candDir "admeta-spec-builder.js")) -and
+            -not (Safe-TestPath (Join-Path $candDir "publish-update.ps1"))) {
+          [void]$targetSet.Add($candDir)
+        }
+      } catch {}
     }
   } catch {}
 }
@@ -112,7 +125,7 @@ $config = $null
 foreach ($dir in @($permanentDir, $PSScriptRoot) + $targetDirs) {
   if (-not $dir) { continue }
   $cfgCandidate = Join-Path $dir "update-config.json"
-  if (Test-Path -LiteralPath $cfgCandidate) {
+  if (Safe-TestPath $cfgCandidate) {
     try {
       $config = Read-JsonFileNoBom $cfgCandidate
       if ($config) { break }
@@ -128,7 +141,7 @@ $minLocalVersion = $null
 foreach ($dir in $targetDirs) {
   $mfPath = Join-Path $dir "manifest.json"
   $ver = "0.0.0"
-  if (Test-Path -LiteralPath $mfPath) {
+  if (Safe-TestPath $mfPath) {
     try {
       $mf = Read-JsonFileNoBom $mfPath
       if ($mf.version) { $ver = [string]$mf.version }
@@ -143,11 +156,11 @@ if (-not $minLocalVersion) { $minLocalVersion = "0.0.0" }
 function Ensure-AutoUpdaterRegistered {
   try {
     $vbsScript = Join-Path $permanentDir "silent-updater.vbs"
-    if (-not (Test-Path -LiteralPath $vbsScript)) { return }
+    if (-not (Safe-TestPath $vbsScript)) { return }
     $taskName = "iHAVECPU-Extension-AutoUpdater"
     $wscriptCmd = "wscript.exe //B //NoLogo `"$vbsScript`""
     $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    if (Test-Path -LiteralPath $runKey) {
+    if (Safe-TestPath $runKey) {
       Set-ItemProperty -LiteralPath $runKey -Name $taskName -Value $wscriptCmd -Force -ErrorAction SilentlyContinue
     }
     $protoRoot = "HKCU:\Software\Classes\ihavecpu-updater"
@@ -249,7 +262,7 @@ try {
   }
 
   $sourceFolder = $extractedRoot.FullName
-  if (-not (Test-Path -LiteralPath (Join-Path $sourceFolder "manifest.json"))) {
+  if (-not (Safe-TestPath (Join-Path $sourceFolder "manifest.json"))) {
     $nestedManifest = Get-ChildItem -LiteralPath $sourceFolder -Filter "manifest.json" -Recurse | Select-Object -First 1
     if ($nestedManifest) {
       $sourceFolder = $nestedManifest.Directory.FullName
@@ -261,7 +274,7 @@ try {
 
   foreach ($destDir in $targetDirs) {
     try {
-      if (-not (Test-Path -LiteralPath $destDir)) {
+      if (-not (Safe-TestPath $destDir)) {
         New-Item -ItemType Directory -Path $destDir -Force | Out-Null
       }
       foreach ($item in $filesToCopy) {
@@ -277,7 +290,7 @@ try {
         [System.IO.File]::WriteAllText((Join-Path $destDir "device-info.json"), $devInfo, $utf8NoBom)
       } catch {}
       $newConfigPath = Join-Path $destDir "update-config.json"
-      if (Test-Path -LiteralPath $newConfigPath) {
+      if (Safe-TestPath $newConfigPath) {
         try {
           $newConfig = Read-JsonFileNoBom $newConfigPath
           if (-not $newConfig.githubOwner -or $newConfig.githubOwner -eq "YOUR_GITHUB_USERNAME") {
@@ -311,7 +324,7 @@ try {
   Write-Info "$([char]0x0E40)$([char]0x0E01)$([char]0x0E34)$([char]0x0E14)$([char]0x0E02)$([char]0x0E49)$([char]0x0E2D)$([char]0x0E1C)$([char]0x0E34)$([char]0x0E14)$([char]0x0E1E)$([char]0x0E25)$([char]0x0E32)$([char]0x0E14)$([char]0x0E23)$([char]0x0E30)$([char]0x0E2B)$([char]0x0E27)$([char]0x0E48)$([char]0x0E32)$([char]0x0E07)$([char]0x0E2D)$([char]0x0E31)$([char]0x0E1B)$([char]0x0E40)$([char]0x0E14)$([char]0x0E15): $($_.Exception.Message)" "Red"
   exit 1
 } finally {
-  if (Test-Path -LiteralPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue }
-  if (Test-Path -LiteralPath $tempExtract) { Remove-Item -LiteralPath $tempExtract -Recurse -Force -ErrorAction SilentlyContinue }
-  if (Test-Path -LiteralPath $lockFile) { Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue }
+  if (Safe-TestPath $tempZip) { Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue }
+  if (Safe-TestPath $tempExtract) { Remove-Item -LiteralPath $tempExtract -Recurse -Force -ErrorAction SilentlyContinue }
+  if (Safe-TestPath $lockFile) { Remove-Item -LiteralPath $lockFile -Force -ErrorAction SilentlyContinue }
 }

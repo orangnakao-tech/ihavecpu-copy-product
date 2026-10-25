@@ -26,14 +26,21 @@ If runOnce Then
   WScript.Quit 0
 End If
 
-tempDir = sh.ExpandEnvironmentStrings("%TEMP%")
-daemonLockPath = tempDir & "\ihavecpu-updater-daemon.lock"
+' ตรวจสอบว่ามี silent-updater.vbs รันอยู่เบื้องหลังแล้วหรือไม่ผ่าน WMI
 Err.Clear
-Set daemonLock = fso.OpenTextFile(daemonLockPath, 2, True)
-If Err.Number <> 0 Then
-  WScript.Quit 0
+Set wmi = GetObject("winmgmts:\\.\root\cimv2")
+If Err.Number = 0 Then
+  Set procs = wmi.ExecQuery("SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'wscript.exe'")
+  runningCount = 0
+  For Each proc in procs
+    If InStr(LCase(proc.CommandLine), "silent-updater.vbs") > 0 Then
+      runningCount = runningCount + 1
+    End If
+  Next
+  If runningCount > 1 Then
+    WScript.Quit 0
+  End If
 End If
-daemonLock.WriteLine "Active since " & Now
 
 Do
   WScript.Sleep 60000

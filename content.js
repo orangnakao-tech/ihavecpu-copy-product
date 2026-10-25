@@ -647,150 +647,9 @@
     }
   }
 
-  let dismissedUpdateVersion = "";
-
-  function showUpdateNotice(status) {
-    if (!status || status.silentUpdate || (!status.diskNeedsReload && !status.remoteHasNewer)) {
-      document.getElementById("ihavecpu-update-notice")?.remove();
-      return;
-    }
-    const targetVersion = status.remoteVersion || status.diskVersion || "ใหม่";
-    try {
-      if (dismissedUpdateVersion === targetVersion || sessionStorage.getItem("ihavecpu_dismissed_update") === targetVersion) {
-        return;
-      }
-    } catch {}
-
-    const defaultNotes = [
-      "+ เซ็ตโปรตัดรายละเอียดสเปกย่อย (CPU, MB ฯลฯ) ออก เหลือเฉพาะชื่อเซ็ตและราคา",
-      "+ ปุ่มก๊อบปี้สเปก + ราคาขายสุทธิ Shopee / Lazada / TikTok",
-      "+ คลิกที่หัวตารางหรือช่องราคาแพลตฟอร์มเพื่อคัดลอกได้ทันที",
-      "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ"
-    ];
-    const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
-      ? status.releaseNotes
-      : defaultNotes;
-
-    let box = document.getElementById("ihavecpu-update-notice");
-    if (!box) {
-      box = document.createElement("div");
-      box.id = "ihavecpu-update-notice";
-      Object.assign(box.style, {
-        position: "fixed",
-        right: "18px",
-        top: "18px",
-        zIndex: "2147483647",
-        width: "340px",
-        maxWidth: "calc(100vw - 28px)",
-        background: "linear-gradient(135deg, #fff8f6 0%, #ffffff 100%)",
-        border: "2px solid #d71920",
-        borderRadius: "12px",
-        boxShadow: "0 6px 24px rgba(0,0,0,.25)",
-        padding: "12px 14px",
-        font: "13px/1.45 Arial,Tahoma,sans-serif",
-        color: "#222"
-      });
-      box.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;">
-          <strong style="color:#202124;font-size:13.5px;display:flex;align-items:center;gap:5px;">
-            <span style="background:#d71920;color:#fff;padding:1px 8px;border-radius:10px;font-size:12px;">ver.<span class="ihc-update-ver"></span></span>
-            <span>อัพเดทใหม่<span style="color:#d71920;font-weight:900;margin-left:1px;">!!!</span></span>
-          </strong>
-          <button type="button" data-update-close="1" aria-label="ปิดข้อความ" title="ปิดข้อความ" style="border:0;background:#f2f4f7;color:#333;width:26px;height:26px;border-radius:6px;cursor:pointer;font:700 16px/1 Arial,sans-serif;display:flex;align-items:center;justify-content:center;">×</button>
-        </div>
-        <div class="ihc-update-notes" style="margin-bottom:8px;display:flex;flex-direction:column;gap:4px;font-size:12px;"></div>
-        <div class="ihc-update-msg" style="margin-bottom:9px;color:#555;font-size:11.5px;">
-          กดปุ่มด้านล่างเพื่อซิงก์และรีเซ็ตใช้เวอร์ชันใหม่ทันที
-        </div>
-        <button type="button" data-reload-extension-now="1" style="display:block;width:100%;border:0;text-align:center;background:#d71920;color:#fff;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;">
-          🔄 กดอัปเดตและรีเซ็ตทันที
-        </button>
-        <a href="chrome://extensions/" data-open-extensions="1" style="display:block;text-align:center;color:#666;text-decoration:underline;font-size:11px;margin-top:6px;cursor:pointer;">
-          หรือเปิดหน้าส่วนขยาย (chrome://extensions/)
-        </a>
-      `;
-      box.addEventListener("click", (event) => {
-        if (event.target.closest("[data-update-close]")) {
-          dismissedUpdateVersion = box.dataset.version || targetVersion;
-          try {
-            sessionStorage.setItem("ihavecpu_dismissed_update", dismissedUpdateVersion);
-          } catch {}
-          box.remove();
-          return;
-        }
-        const reloadNowBtn = event.target.closest("[data-reload-extension-now]");
-        if (reloadNowBtn) {
-          event.preventDefault();
-          reloadNowBtn.textContent = "กำลังอัปเดตและรีเซ็ตส่วนขยาย...";
-          reloadNowBtn.disabled = true;
-          try {
-            const iframe = document.createElement("iframe");
-            iframe.style.display = "none";
-            iframe.src = "ihavecpu-updater://update";
-            document.body.appendChild(iframe);
-            setTimeout(() => iframe.remove(), 3000);
-          } catch {}
-          chrome.runtime.sendMessage({ type: "RELOAD_EXTENSION_NOW", waitForDiskSync: true }).catch(() => {});
-          setTimeout(() => location.reload(), 1500);
-          return;
-        }
-        const openLink = event.target.closest("[data-open-extensions]");
-        if (openLink) {
-          event.preventDefault();
-          chrome.runtime.sendMessage({ type: "OPEN_CHROME_EXTENSIONS_PAGE" }).catch(() => {});
-        }
-      });
-      document.body.appendChild(box);
-    }
-    box.dataset.version = targetVersion;
-    const verSpan = box.querySelector(".ihc-update-ver");
-    if (verSpan) verSpan.textContent = String(targetVersion).replace(/^v/i, "");
-    const notesContainer = box.querySelector(".ihc-update-notes");
-    if (notesContainer) {
-      const palette = [
-        { bg: "#fff7ed", text: "#c2410c", badge: "#ea580c" },
-        { bg: "#eff6ff", text: "#1d4ed8", badge: "#2563eb" },
-        { bg: "#f0fdf4", text: "#15803d", badge: "#16a34a" },
-        { bg: "#faf5ff", text: "#6d28d9", badge: "#7c3aed" }
-      ];
-      notesContainer.innerHTML = "";
-      notesList.forEach((note, idx) => {
-        const cleanText = String(note || "").trim().replace(/^\+\s*(?:อัพเดท)?/i, "").trim();
-        if (!cleanText) return;
-        const p = palette[idx % palette.length];
-        const row = document.createElement("div");
-        Object.assign(row.style, {
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-          padding: "4px 8px",
-          borderRadius: "6px",
-          background: p.bg,
-          color: p.text,
-          fontWeight: "700"
-        });
-        const badge = document.createElement("span");
-        Object.assign(badge.style, {
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "16px",
-          height: "16px",
-          borderRadius: "50%",
-          background: p.badge,
-          color: "#fff",
-          fontWeight: "900",
-          fontSize: "11px",
-          flexShrink: "0"
-        });
-        badge.textContent = "+";
-        const span = document.createElement("span");
-        span.textContent = cleanText;
-        row.appendChild(badge);
-        row.appendChild(span);
-        notesContainer.appendChild(row);
-      });
-    }
+  function showUpdateNotice() {
+    // ผู้ใช้ต้องการให้อัปเดตอัตโนมัติเบื้องหลัง ไม่ต้องแสดงกล่องแจ้งเตือนขึ้นมาบนหน้าเว็บอีกต่อไป
+    document.getElementById("ihavecpu-update-notice")?.remove();
   }
 
   function buildActionsHtml(isDIYShare, hasProduct, isPromoSet, platformMode) {
@@ -1164,7 +1023,11 @@
       const now = Date.now();
       if (now - lastInteractionSentAt < 300) return;
       lastInteractionSentAt = now;
-      chrome.runtime.sendMessage({ type: "ZAAPI_TAB_INTERACTED" }).catch(() => {});
+      try {
+        if (chrome?.runtime?.id) {
+          chrome.runtime.sendMessage({ type: "ZAAPI_TAB_INTERACTED" }).catch(() => {});
+        }
+      } catch {}
     };
     window.addEventListener("pointerdown", notifyZaapiInteraction, true);
     window.addEventListener("keydown", notifyZaapiInteraction, true);
