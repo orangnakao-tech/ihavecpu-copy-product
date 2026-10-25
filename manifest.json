@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "iHAVECPU คัดลอกสินค้า + รูป",
-  "version": "2.5.15",
+  "version": "2.5.16",
   "description": "คัดลอกชื่อสินค้า ราคา ลิงก์ และรูปสินค้าจาก iHAVECPU ด้วยปุ่มหรือคีย์ลัด",
   "permissions": [
     "activeTab",
