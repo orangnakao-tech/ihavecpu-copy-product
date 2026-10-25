@@ -810,12 +810,33 @@
     return clean;
   }
 
+  function isSubSpecDetail(text) {
+    const t = String(text || "").trim();
+    if (!t) return false;
+    if (/^[+＋]/.test(t)) return false;
+    return /^(?:CPU|Mainboard|Graphic\s*card|VGA|Memory|RAM|Storage|SSD|M\.2|Power\s*Supply|PSU|Case|Cooler|Liquid\s*Cooling|Cooling|Fan|ซีพียู|เมนบอร์ด|การ์ดจอ|แรม|เอสเอสดี|พาวเวอร์|เคส)\s*:/i.test(t);
+  }
+
+  function cleanProductTitleLine(text) {
+    let t = String(text || "").trim();
+    const lines = t.split("\n").map((l) => l.trim()).filter(Boolean);
+    let chosen = "";
+    for (const line of lines) {
+      const clean = line.replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim();
+      if (!clean) continue;
+      if (isSubSpecDetail(clean)) continue;
+      chosen = clean;
+      break;
+    }
+    return chosen || (lines[0] ? lines[0].replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim() : "");
+  }
+
   function buildPlatformCopyText(platformName, baseTitle, additionalItems, netPriceStr) {
     const cleanPrice = extractPriceDigits(netPriceStr);
     const formattedPrice = cleanPrice ? `= ${cleanPrice}.-` : "";
 
     const lines = [];
-    const cleanBase = String(baseTitle || "").replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim();
+    const cleanBase = cleanProductTitleLine(baseTitle);
     if (cleanBase) {
       lines.push(`${platformName} | ${cleanBase}`);
     } else {
@@ -823,8 +844,8 @@
     }
 
     const validAdditionals = (additionalItems || [])
-      .map((item) => String(item || "").replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim())
-      .filter((item) => item.length > 0);
+      .map((item) => cleanProductTitleLine(item))
+      .filter((item) => item.length > 0 && !isSubSpecDetail(item));
 
     if (validAdditionals.length > 0) {
       lines.push("");
@@ -840,55 +861,67 @@
   }
 
   function extractPlatformCalculatorItems() {
+    const netPrices = findPlatformNetPrices();
+    const summaryTable = netPrices?.netRow ? netPrices.netRow.closest("table") : null;
+
+    if (summaryTable) {
+      const rows = [...summaryTable.querySelectorAll("tbody tr, tr")].filter((r) => {
+        const txt = (r.innerText || "").trim();
+        return !txt.includes("ราคาลงขายสุทธิ") && !/Shopee|Lazada|TikTok/i.test(txt);
+      });
+
+      if (rows.length > 0) {
+        let baseTitle = "";
+        const additionalItems = [];
+
+        rows.forEach((r, idx) => {
+          const firstCell = r.querySelector("td, th");
+          if (!firstCell) return;
+          const cleanLine = cleanProductTitleLine(firstCell.innerText);
+          if (!cleanLine || isSubSpecDetail(cleanLine)) return;
+
+          if (idx === 0 && !baseTitle) {
+            baseTitle = cleanLine;
+          } else {
+            additionalItems.push(cleanLine);
+          }
+        });
+
+        if (baseTitle) {
+          return {
+            baseTitle,
+            additionalItems: additionalItems.filter((item) => !isSubSpecDetail(item))
+          };
+        }
+      }
+    }
+
     const rowInputs = findPlatformSearchRowInputs();
     if (rowInputs.length > 0) {
       let pcSetTitle = "";
       const additionalItems = [];
 
       rowInputs.forEach((inp) => {
-        const val = (inp.value || "").trim();
-        if (!val) return;
-        const isComset = rowHasPcSetBadge(inp) || /^\[?\s*PC\s*SET/i.test(val);
+        const val = cleanProductTitleLine(inp.value);
+        if (!val || isSubSpecDetail(val)) return;
+
+        const isComset = rowHasPcSetBadge(inp) || /^\[?\s*PC\s*SET/i.test(inp.value || "");
         if (isComset && !pcSetTitle) {
-          pcSetTitle = val.replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim();
+          pcSetTitle = val;
         } else {
           additionalItems.push(val);
         }
       });
 
-      if (!pcSetTitle && rowInputs[0] && (rowInputs[0].value || "").trim()) {
-        pcSetTitle = rowInputs[0].value.trim();
+      if (!pcSetTitle && rowInputs[0]) {
+        pcSetTitle = cleanProductTitleLine(rowInputs[0].value);
         additionalItems.shift();
       }
 
-      return { baseTitle: pcSetTitle, additionalItems };
-    }
-
-    const table = document.querySelector("table");
-    if (table) {
-      const rows = [...table.querySelectorAll("tbody tr, tr")].filter((r) => {
-        const txt = (r.innerText || "").trim();
-        return !txt.includes("ราคาลงขายสุทธิ") && !/Shopee|Lazada|TikTok/i.test(txt);
-      });
-
-      let baseTitle = "";
-      const additionalItems = [];
-
-      rows.forEach((r, idx) => {
-        const firstCell = r.querySelector("td, th");
-        if (!firstCell) return;
-        const rawTxt = (firstCell.innerText || "").trim().split("\n")[0].trim();
-        const cleanLine = rawTxt.replace(/^\[?\s*PC\s*SET\s*\]?\s*/i, "").trim();
-        if (!cleanLine) return;
-        if ((idx === 0 && !baseTitle) || /PC\s*SET/i.test(rawTxt)) {
-          if (!baseTitle) baseTitle = cleanLine;
-          else additionalItems.push(cleanLine);
-        } else {
-          additionalItems.push(cleanLine);
-        }
-      });
-
-      return { baseTitle, additionalItems };
+      return {
+        baseTitle: pcSetTitle,
+        additionalItems: additionalItems.filter((item) => !isSubSpecDetail(item))
+      };
     }
 
     return { baseTitle: "", additionalItems: [] };
@@ -1900,10 +1933,10 @@
     } catch {}
 
     const defaultNotes = [
+      "+ เซ็ตโปรตัดรายละเอียดสเปกย่อย (CPU, MB ฯลฯ) ออก เหลือเฉพาะชื่อเซ็ตและราคา",
       "+ ปุ่มก๊อบปี้สเปก + ราคาขายสุทธิ Shopee / Lazada / TikTok",
       "+ คลิกที่หัวตารางหรือช่องราคาแพลตฟอร์มเพื่อคัดลอกได้ทันที",
-      "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ",
-      "+ รองรับสินค้าทดแทน (+ทดแทน) และตารางอุปกรณ์เสริมอิสระ"
+      "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ"
     ];
     const notesList = Array.isArray(status.releaseNotes) && status.releaseNotes.length > 0
       ? status.releaseNotes

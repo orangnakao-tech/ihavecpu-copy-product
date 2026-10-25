@@ -7,10 +7,10 @@ const releaseNotesVerEl = document.getElementById("release-notes-ver");
 const releaseNotesItemsEl = document.getElementById("release-notes-items");
 
 const DEFAULT_RELEASE_NOTES = [
+  "+ เซ็ตโปรตัดรายละเอียดสเปกย่อย (CPU, MB ฯลฯ) ออก เหลือเฉพาะชื่อเซ็ตและราคา",
   "+ ปุ่มก๊อบปี้สเปก + ราคาขายสุทธิ Shopee / Lazada / TikTok",
   "+ คลิกที่หัวตารางหรือช่องราคาแพลตฟอร์มเพื่อคัดลอกได้ทันที",
-  "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ",
-  "+ รองรับสินค้าทดแทน (+ทดแทน) และตารางอุปกรณ์เสริมอิสระ"
+  "+ แก้ไขคำว่า 'แพลตฟอร์ม' ให้ถูกต้องทั่วทั้งระบบ"
 ];
 
 const NOTE_PALETTE = [
