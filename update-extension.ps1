@@ -187,27 +187,7 @@ $remoteVersion = $null
 
 Write-Info "$([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)$([char]0x0E01)$([char]0x0E40)$([char]0x0E27)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E0A)$([char]0x0E31)$([char]0x0E19)$([char]0x0E25)$([char]0x0E48)$([char]0x0E32)$([char]0x0E2A)$([char]0x0E38)$([char]0x0E14)$([char]0x0E08)$([char]0x0E32)$([char]0x0E01) GitHub ($owner/$repo)..."
 
-# 1. เช็กผ่าน GitHub API ก่อน (ไม่ติด Cache 5 นาทีของ raw.githubusercontent.com)
-$apiUrls = @(
-  "https://api.github.com/repos/$owner/$repo/contents/manifest.json?ref=$branch&t=$ts",
-  "https://api.github.com/repos/$owner/$repo/contents/ihavecpu-copy-product-v4/manifest.json?ref=$branch&t=$ts"
-)
-foreach ($apiUrl in $apiUrls) {
-  if ($remoteVersion) { break }
-  try {
-    $apiResp = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -UseBasicParsing -TimeoutSec 10
-    if ($apiResp -and $apiResp.content) {
-      $cleanBase64 = ($apiResp.content -replace '\s', '')
-      $decodedText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($cleanBase64)).TrimStart([char]0xFEFF).Trim()
-      $parsed = $decodedText | ConvertFrom-Json
-      if ($parsed.version) {
-        $remoteVersion = [string]$parsed.version
-      }
-    }
-  } catch {}
-}
-
-# 2. Fallback เช็กจาก raw.githubusercontent.com (กรณีติด Rate Limit ของ GitHub API)
+# 1. เช็กผ่าน raw.githubusercontent.com ก่อน (ไม่ติด Rate Limit 60 req/hr ของ GitHub API)
 $rawUrls = @(
   "https://raw.githubusercontent.com/$owner/$repo/$branch/manifest.json?t=$ts",
   "https://raw.githubusercontent.com/$owner/$repo/$branch/ihavecpu-copy-product-v4/manifest.json?t=$ts"
@@ -215,7 +195,7 @@ $rawUrls = @(
 foreach ($rawUrl in $rawUrls) {
   if ($remoteVersion) { break }
   try {
-    $resp = Invoke-WebRequest -Uri $rawUrl -Method Get -Headers $headers -UseBasicParsing -TimeoutSec 12
+    $resp = Invoke-WebRequest -Uri $rawUrl -Method Get -Headers $headers -UseBasicParsing -TimeoutSec 6
     if ($resp.StatusCode -eq 200 -and $resp.Content) {
       $text = if ($resp.Content -is [byte[]]) {
         [System.Text.Encoding]::UTF8.GetString($resp.Content)
@@ -229,6 +209,28 @@ foreach ($rawUrl in $rawUrls) {
       }
     }
   } catch {}
+}
+
+# 2. Fallback เช็กจาก GitHub API เผื่อกรณี raw เข้าไม่ถึง
+if (-not $remoteVersion) {
+  $apiUrls = @(
+    "https://api.github.com/repos/$owner/$repo/contents/manifest.json?ref=$branch&t=$ts",
+    "https://api.github.com/repos/$owner/$repo/contents/ihavecpu-copy-product-v4/manifest.json?ref=$branch&t=$ts"
+  )
+  foreach ($apiUrl in $apiUrls) {
+    if ($remoteVersion) { break }
+    try {
+      $apiResp = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers -UseBasicParsing -TimeoutSec 5
+      if ($apiResp -and $apiResp.content) {
+        $cleanBase64 = ($apiResp.content -replace '\s', '')
+        $decodedText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($cleanBase64)).TrimStart([char]0xFEFF).Trim()
+        $parsed = $decodedText | ConvertFrom-Json
+        if ($parsed.version) {
+          $remoteVersion = [string]$parsed.version
+        }
+      }
+    } catch {}
+  }
 }
 
 if ([string]::IsNullOrWhiteSpace($remoteVersion)) {
