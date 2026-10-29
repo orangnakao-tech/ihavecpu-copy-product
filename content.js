@@ -12,7 +12,7 @@
     editors: ['[contenteditable="true"]', "textarea", '[role="textbox"]'],
     textarea: "textarea",
     contentEditable: '[contenteditable="true"]',
-    imageComposer: "#conversation-input-toolbox-panel, [data-testid='conversation-input-toolbox-panel'], .cs-input-toolbox",
+    imageComposer: "#conversation-input-toolbox-panel, [data-testid='conversation-input-toolbox-panel'], .cs-input-toolbox, [class*='toolbox'], [class*='input-toolbox'], [class*='composer'], [class*='chat-input'], [class*='conversation-input'], footer, form",
     imageInputs: 'input[type="file"]'
   };
 
@@ -1212,15 +1212,61 @@
   }
 
   function findZaapiImageInput(editor) {
-    const composer = editor.closest(ZAAPI_SELECTORS.imageComposer);
-    if (!composer) return null;
+    const isImageAccept = (accept) => {
+      const a = (accept || "").trim().toLowerCase();
+      if (!a || a === "*/*") return true;
+      return /(image|\.png|\.jpe?g|\.webp|\.gif)/i.test(a);
+    };
 
-    const inputs = [...composer.querySelectorAll(ZAAPI_SELECTORS.imageInputs)]
-      .filter((input) => {
-        const accept = (input.accept || "").trim();
-        return !accept || accept === "*/*" || /(image|\.png|\.jpe?g|\.webp|\.gif)/i.test(accept);
-      });
-    return inputs.length === 1 ? inputs[0] : null;
+    const isExplicitNonImage = (accept) => {
+      const a = (accept || "").trim().toLowerCase();
+      if (!a) return false;
+      return /(application\/pdf|\.pdf|\.doc|\.docx|\.xls|\.xlsx|\.zip|\.rar|\.txt|\.csv)/i.test(a) && !/image/i.test(a);
+    };
+
+    const getScore = (input) => {
+      const accept = (input.accept || "").toLowerCase();
+      let score = 0;
+      if (/image/i.test(accept)) score += 50;
+      if (/(png|jpe?g|webp|gif)/i.test(accept)) score += 40;
+      if (accept === "*/*" || !accept) score += 10;
+      if (input.name && /image|photo|pic|file/i.test(input.name)) score += 15;
+      if (input.id && /image|photo|pic|file/i.test(input.id)) score += 15;
+      return score;
+    };
+
+    const scopes = [];
+    if (editor) {
+      const composer = editor.closest(ZAAPI_SELECTORS.imageComposer);
+      if (composer) scopes.push(composer);
+
+      let curr = editor.parentElement;
+      let depth = 0;
+      while (curr && depth < 8) {
+        if (curr.querySelector(ZAAPI_SELECTORS.imageInputs)) {
+          if (!scopes.includes(curr)) scopes.push(curr);
+          break;
+        }
+        curr = curr.parentElement;
+        depth++;
+      }
+
+      const chatContainer = editor.closest('[class*="conversation"], [class*="chat"], [class*="inbox"], main, body');
+      if (chatContainer && !scopes.includes(chatContainer)) scopes.push(chatContainer);
+    }
+    scopes.push(document);
+
+    for (const scope of scopes) {
+      const rawInputs = [...scope.querySelectorAll(ZAAPI_SELECTORS.imageInputs)];
+      if (!rawInputs.length) continue;
+
+      const validInputs = rawInputs.filter((inp) => !isExplicitNonImage(inp.accept) && isImageAccept(inp.accept));
+      if (!validInputs.length) continue;
+
+      validInputs.sort((a, b) => getScore(b) - getScore(a));
+      return validInputs[0];
+    }
+    return null;
   }
 
   async function prepareZaapiProduct({ text, imageDataUrl, fileName }) {
