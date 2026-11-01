@@ -1936,8 +1936,22 @@ async function showAdminNoticeOnOpenPages(message) {
         message
       });
       return true;
-    } catch (error) {
-      console.warn(`Could not display admin notice in tab ${tab.id}:`, error.message);
+    } catch {
+      try {
+        if (chrome.scripting?.executeScript) {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["notification-banner.js"]
+          });
+          await chrome.tabs.sendMessage(tab.id, {
+            type: "DISPLAY_ADMIN_UPDATE_NOTICE",
+            message
+          });
+          return true;
+        }
+      } catch (error) {
+        console.warn(`Could not display admin notice in tab ${tab.id}:`, error.message);
+      }
       return false;
     }
   }));

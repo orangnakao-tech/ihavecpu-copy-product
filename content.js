@@ -1,5 +1,5 @@
 (() => {
-  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.24";
+  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.25";
   if (window.__ihavecpuCopyInstalled === currentExtVer && window.__ihavecpuCopyRuntimeAlive?.()) return;
   window.__ihavecpuCopyInstalled = currentExtVer;
   window.__ihavecpuCopyRuntimeAlive = () => Boolean(chrome?.runtime?.id);

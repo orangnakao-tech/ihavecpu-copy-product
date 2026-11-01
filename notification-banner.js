@@ -14,57 +14,71 @@
     if (typeof message !== "string" || !message.trim()) return;
 
     document.getElementById(BANNER_ID)?.remove();
-    if (!document.getElementById(STYLE_ID)) {
-      const style = document.createElement("style");
-      style.id = STYLE_ID;
-      style.textContent = `
-        @keyframes ihc-admin-notice-move-right {
-          from { transform: translateX(-100%); }
-          to { transform: translateX(100vw); }
-        }
-        #${BANNER_ID} {
-          position: fixed;
-          z-index: 2147483647;
-          top: 0;
-          left: 0;
-          width: 100%;
-          overflow: hidden;
-          padding: 8px 0;
-          pointer-events: none;
-          background: rgba(36, 0, 0, .28);
-          border-bottom: 1px solid rgba(255, 40, 40, .18);
-        }
-        #${BANNER_ID} span {
-          display: block;
-          width: max-content;
-          white-space: nowrap;
-          color: rgba(255, 68, 68, .78);
-          font: 600 15px/1.35 "Segoe UI", sans-serif;
-          letter-spacing: .04em;
-          text-shadow: 0 0 10px rgba(255, 0, 0, .28);
-          animation: ihc-admin-notice-move-right 24s linear forwards;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          #${BANNER_ID} span { animation-duration: 8s; }
-        }
-      `;
-      (document.head || document.documentElement).appendChild(style);
-    }
+    document.getElementById(STYLE_ID)?.remove();
+
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+      @keyframes ihc-admin-notice-scroll-loop {
+        0% { transform: translateX(100vw); }
+        100% { transform: translateX(-100%); }
+      }
+      #${BANNER_ID} {
+        position: fixed !important;
+        z-index: 2147483647 !important;
+        top: 50% !important;
+        left: 0 !important;
+        width: 100vw !important;
+        transform: translateY(-50%) !important;
+        overflow: hidden !important;
+        padding: 12px 0 !important;
+        pointer-events: none !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+      #${BANNER_ID} span {
+        display: inline-block !important;
+        width: max-content !important;
+        white-space: nowrap !important;
+        background: transparent !important;
+        color: #ff1f1f !important;
+        font: 800 28px/1.4 "Kanit", "Segoe UI", Tahoma, sans-serif !important;
+        letter-spacing: 0.03em !important;
+        text-shadow:
+          -1.5px -1.5px 0 rgba(255, 255, 255, 0.92),
+           1.5px -1.5px 0 rgba(255, 255, 255, 0.92),
+          -1.5px  1.5px 0 rgba(255, 255, 255, 0.92),
+           1.5px  1.5px 0 rgba(255, 255, 255, 0.92),
+           0 3px 12px rgba(0, 0, 0, 0.45),
+           0 0 18px rgba(255, 31, 31, 0.55) !important;
+        will-change: transform;
+        animation: ihc-admin-notice-scroll-loop 10s linear 3 forwards !important;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
 
     const banner = document.createElement("div");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
     banner.setAttribute("aria-live", "assertive");
     const text = document.createElement("span");
-    text.textContent = message.trim().slice(0, 240);
+    text.textContent = `📢 ${message.trim().slice(0, 240)}`;
     banner.appendChild(text);
     (document.body || document.documentElement).appendChild(banner);
-    window.setTimeout(() => banner.remove(), 25_000);
+
+    text.addEventListener("animationend", () => {
+      banner.remove();
+    });
+    window.setTimeout(() => banner.remove(), 31_000);
   }
 
-  const listener = (message) => {
+  const listener = (message, _sender, sendResponse) => {
     if (message?.type === "DISPLAY_ADMIN_UPDATE_NOTICE") {
       showUpdateNotice(message.message);
+      if (typeof sendResponse === "function") {
+        sendResponse({ ok: true });
+      }
     }
   };
   chrome.runtime.onMessage.addListener(listener);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "iHAVECPU คัดลอกสินค้า + รูป",
-  "version": "2.5.24",
+  "version": "2.5.25",
   "description": "คัดลอกชื่อสินค้า ราคา ลิงก์ และรูปสินค้าจาก iHAVECPU ด้วยปุ่มหรือคีย์ลัด",
   "permissions": [
     "activeTab",
@@ -19,7 +19,8 @@
     "https://ihcupload-bkk.s3.ap-southeast-7.amazonaws.com/*",
     "https://raw.githubusercontent.com/*",
     "https://api.github.com/*",
-    "https://ntfy.sh/*"
+    "https://ntfy.sh/*",
+    "https://ntfy.envs.net/*"
   ],
   "commands": {
     "copy-product": {

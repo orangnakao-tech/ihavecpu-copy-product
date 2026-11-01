@@ -264,7 +264,7 @@ if ($isMasterRepo -and -not $Silent) {
     Write-Host "[1/4] Checking code syntax and manifest integrity..." -ForegroundColor Cyan
     $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
     if ($nodeCmd) {
-      foreach ($jsFile in @("background.js", "content.js", "admeta-spec-builder.js", "popup.js")) {
+      foreach ($jsFile in @("background.js", "content.js", "admeta-spec-builder.js", "popup.js", "notification-banner.js")) {
         $jsPath = Join-Path $repoDir $jsFile
         if (Safe-TestPath $jsPath) {
           & $nodeCmd.Source --check $jsPath
