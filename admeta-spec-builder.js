@@ -1,6 +1,8 @@
 (() => {
-  if (window.__ihavecpuAdmetaInstalled) return;
-  window.__ihavecpuAdmetaInstalled = true;
+  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.23";
+  if (window.__ihavecpuAdmetaInstalled === currentExtVer && window.__ihavecpuAdmetaRuntimeAlive?.()) return;
+  window.__ihavecpuAdmetaInstalled = currentExtVer;
+  window.__ihavecpuAdmetaRuntimeAlive = () => Boolean(chrome?.runtime?.id);
   document.getElementById("ihavecpu-platform-calc-reset-btn")?.remove();
   document.getElementById("ihavecpu-platform-calc-reset-inline")?.remove();
   document.getElementById("ihavecpu-update-notice")?.remove();
@@ -258,30 +260,68 @@
     return findMainBuilderSearchInput();
   }
 
+  function getSmallestPromoCardForButton(btn) {
+    let curr = btn?.parentElement;
+    let bestCard = curr;
+    while (curr && curr !== document.body) {
+      const selectBtns = [...curr.querySelectorAll("button, [role='button'], a")].filter((el) =>
+        /เลือกเซ็ตนี้|เลือกเซ็ต/i.test((el.innerText || el.textContent || "").trim())
+      );
+      if (selectBtns.length > 1) {
+        break;
+      }
+      bestCard = curr;
+      const r = curr.getBoundingClientRect();
+      if (r.width >= 180 && r.height >= 120) {
+        break;
+      }
+      curr = curr.parentElement;
+    }
+    return bestCard;
+  }
+
   function findPromoSetCardOrButton(searchTerm) {
     const term = searchTerm.trim().toLowerCase();
     const setCode = term.split(/\s+/)[0];
     const normTerm = term.replace(/[\s-_]+/g, "");
 
-    // 1. Look for cards/containers containing the promo set code/title
+    const matchesTargetTerm = (rawText) => {
+      const text = (rawText || "").toLowerCase();
+      const normText = text.replace(/[\s-_]+/g, "");
+      return text.includes(term) ||
+        (setCode && setCode.length >= 4 && text.includes(setCode)) ||
+        (normTerm.length >= 4 && normText.includes(normTerm));
+    };
+
+    // 1. Check all "+ เลือกเซ็ตนี้" / "เลือกเซ็ต" buttons and inspect their individual card
+    const selectButtons = [...document.querySelectorAll("button, [role='button'], a")].filter((btn) => {
+      if (!btn || btn.disabled) return false;
+      const style = window.getComputedStyle(btn);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const t = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+      return /เลือกเซ็ตนี้|เลือกเซ็ต/i.test(t);
+    });
+
+    for (const btn of selectButtons) {
+      const card = getSmallestPromoCardForButton(btn);
+      if (card && matchesTargetTerm(card.innerText || "")) {
+        return btn;
+      }
+    }
+
+    // 2. Look for leaf-level cards/containers containing the promo set code/title
     const containers = [
-      ...document.querySelectorAll(".card, [class*='card'], [class*='promo'], [class*='set'], .list-group-item, [role='listitem'], div")
+      ...document.querySelectorAll(".card, [class*='card'], [class*='promo'], [class*='set'], .list-group-item, [role='listitem']")
     ].filter((el) => {
       if (!el || el.children.length === 0) return false;
       const style = window.getComputedStyle(el);
       if (style.display === "none" || style.visibility === "hidden") return false;
-      return el.offsetWidth > 40 && el.offsetHeight > 40;
+      const r = el.getBoundingClientRect();
+      return r.width > 80 && r.width < 600 && r.height > 60 && r.height < 550;
     });
 
     for (const container of containers) {
-      const text = (container.innerText || "").toLowerCase();
-      const normText = text.replace(/[\s-_]+/g, "");
-      const matchesCode = text.includes(term) ||
-        (setCode && text.includes(setCode)) ||
-        (normTerm.length >= 3 && normText.includes(normTerm));
-
-      if (matchesCode) {
-        // Find "+ เลือกเซ็ตนี้" button inside this container
+      if (matchesTargetTerm(container.innerText || "")) {
         const buttons = [...container.querySelectorAll("button, [role='button'], a")]
           .filter((btn) => {
             const style = window.getComputedStyle(btn);
@@ -289,13 +329,12 @@
           });
         const selectBtn = buttons.find((btn) => /(?:เลือกเซ็ต|เลือก)/i.test(btn.innerText || btn.textContent || ""));
         if (selectBtn) return selectBtn;
-
         if (buttons.length === 1) return buttons[0];
         if (container.tagName === "BUTTON" || container.getAttribute("role") === "button") return container;
       }
     }
 
-    // 2. Direct search in all buttons and clickable elements
+    // 3. Direct search in all buttons and clickable elements
     const allButtons = [...document.querySelectorAll("button, [role='button'], a, .list-group-item-action")]
       .filter((el) => {
         if (!el || el.disabled) return false;
@@ -305,19 +344,8 @@
 
     for (const btn of allButtons) {
       const text = (btn.innerText || btn.textContent || "").toLowerCase();
-      const normText = text.replace(/[\s-_]+/g, "");
-      if (text.includes(term) || (setCode && text.includes(setCode)) || (normTerm.length >= 3 && normText.includes(normTerm))) {
+      if (matchesTargetTerm(text)) {
         return btn;
-      }
-      if (/(?:เลือกเซ็ต|เลือก)/i.test(text)) {
-        const parentCard = btn.closest(".card, [class*='card'], div");
-        if (parentCard) {
-          const cardText = (parentCard.innerText || "").toLowerCase();
-          const normCardText = cardText.replace(/[\s-_]+/g, "");
-          if (cardText.includes(term) || (setCode && cardText.includes(setCode)) || (normTerm.length >= 3 && normCardText.includes(normTerm))) {
-            return btn;
-          }
-        }
       }
     }
 
@@ -339,7 +367,7 @@
       const style = window.getComputedStyle(btn);
       if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
       const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
-      return /^(?:รีเซ็ต|ล้างสเป[กค]|ล้างข้อมูล|เริ่มใหม่|เปลี่ยนสเป[กค]|เลือกสเป[กค]ใหม่|ย้อนกลับ|reset|clear)/i.test(text);
+      return /^(?:↺\s*)?(?:รีเซ็ต|ล้างสเป[กค]|ล้างข้อมูล|เริ่มใหม่|เปลี่ยนสเป[กค]|เลือกสเป[กค]ใหม่|reset|clear)$/i.test(text);
     }) || null;
   }
 
@@ -352,37 +380,59 @@
       const style = window.getComputedStyle(btn);
       if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
       const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
-      if (/คำนวณราคาแพลตฟอร์ม/.test(text)) return false;
+      if (/คำนวณราคาแพลตฟอร์ม|คำนวณเปลี่ยนสินค้า/.test(text)) return false;
       return /(?:คำนวณบิล|คำนวณสเป[กค]|คำนวณราคา|สร้างข้อความ|สรุปสเป[กค]|คำนวณและสร้าง|บันทึกและคำนวณ|^คำนวณ$)/i.test(text);
     }) || primary || null;
   }
 
+  function findPasteDIYClipboardButton() {
+    const buttons = [...document.querySelectorAll("button, [role='button'], a")];
+    return buttons.find((btn) => {
+      if (!btn || btn.disabled) return false;
+      const style = window.getComputedStyle(btn);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+      return /วางลิงก์\s*DIY/i.test(text);
+    }) || null;
+  }
+
+  function getNetTotalAmount() {
+    const text = document.body?.innerText || "";
+    const match = text.match(/ยอดสุทธิชำระ\s*:?\s*[\n\r\t ]*[฿B]?\s*([\d,]+)/i);
+    if (!match) return 0;
+    return parseInt(match[1].replace(/,/g, ""), 10) || 0;
+  }
+
   function hasLoadedSpecParts() {
     if ([...document.querySelectorAll(ADMETA_SELECTORS.diyParts)].length > 0) return true;
-    const changeBtns = [...document.querySelectorAll("button, [role='button']")].filter((b) =>
-      /^(?:เปลี่ยน|เพิ่มสินค้า|ทดแทน|อัปเกรด)$/i.test((b.innerText || b.textContent || "").trim())
-    );
-    if (changeBtns.length >= 2) return true;
+    const changeBtns = [...document.querySelectorAll("button, [role='button']")].filter((b) => {
+      if (!b || b.disabled) return false;
+      const style = window.getComputedStyle(b);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      const t = (b.innerText || b.textContent || "").replace(/\s+/g, " ").trim();
+      return /^(?:เปลี่ยน|ทดแทน|คืนค่า)$/i.test(t);
+    });
+    if (changeBtns.length >= 1) return true;
+    if (getNetTotalAmount() > 0) return true;
     const text = document.body?.innerText || "";
-    if (/ราคาสเป[กค]ตั้งต้น|รายการชิ้นส่วนคอมพิวเตอร์|ปรับแต่งและอัปเกรด|สเป[กค]คอมพิวเตอร์ตั้งต้น|ยอดสุทธิชำระ/i.test(text)) {
+    if (/ราคาสเป[กค]ตั้งต้น|รายการชิ้นส่วนคอมพิวเตอร์|ปรับแต่งและอัปเกรดชิ้นส่วน|2\s*ปรับแต่งและอัปเกรด/i.test(text)) {
       return true;
     }
-    const partHits = ["CPU", "Mainboard", "RAM", "VGA", "SSD", "PSU", "Case"].filter((k) =>
-      new RegExp(`\\b${k}\\b`, "i").test(text)
-    );
-    return partHits.length >= 3 && /[฿B]\s*[\d,]+/.test(text);
+    if (/โควตาสล็อตบนบอร์ด/i.test(text) && !/ยังไม่ได้เลือกเมนบอร์ด/i.test(text)) {
+      return true;
+    }
+    return false;
   }
 
   function hasSelectedSpec() {
-    return Boolean(
-      findResetButton() ||
-      findCalculateButton() ||
-      hasLoadedSpecParts() ||
-      /ปรับแต่งและอัปเกรด|ราคาสเป[กค]ตั้งต้น|สเป[กค]คอมพิวเตอร์ตั้งต้น/i.test(document.body?.innerText || "")
-    );
+    return !isCleanSpecBuilderRoot() || hasLoadedSpecParts();
   }
 
   async function resetBuilder() {
+    if (!hasSelectedSpec()) {
+      return true;
+    }
+
     let resetButton;
     try {
       resetButton = await waitFor(
@@ -407,33 +457,66 @@
 
     await waitFor(
       () => isCleanSpecBuilderRoot() &&
-        findMainBuilderSearchInput() &&
-        !findResetButton() &&
-        !findCalculateButton(),
+        Boolean(findMainBuilderSearchInput()) &&
+        !hasLoadedSpecParts(),
       10000,
       "กดรีเซ็ตแล้วแต่ AdMeta ยังล้างสเป็คเดิมไม่เสร็จ"
     );
     return true;
   }
 
-  function setReactInputValue(input, value) {
+  function setReactInputValue(input, value, options = {}) {
     if (!input) return;
-    input.focus();
+    const { pressEnter = true, isPaste = false } = options;
+    const strVal = String(value ?? "");
     const proto = input.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const valueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set ||
       function (v) { this.value = v; };
-    valueSetter.call(input, "");
-    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
-    valueSetter.call(input, value);
-    input.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: value
-    }));
+
+    try {
+      input.focus();
+      if (typeof input.select === "function") {
+        input.select();
+      }
+      if (strVal === "") {
+        document.execCommand("delete", false, null);
+      } else {
+        document.execCommand("insertText", false, strVal);
+      }
+    } catch {}
+
+    if (input.value !== strVal) {
+      valueSetter.call(input, "");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "deleteContentBackward", data: null }));
+      valueSetter.call(input, strVal);
+      if (isPaste) {
+        try {
+          const dt = new DataTransfer();
+          dt.setData("text/plain", strVal);
+          input.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
+        } catch {}
+      }
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        cancelable: true,
+        inputType: isPaste ? "insertFromPaste" : "insertText",
+        data: strVal
+      }));
+    } else if (isPaste) {
+      try {
+        const dt = new DataTransfer();
+        dt.setData("text/plain", strVal);
+        input.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
+      } catch {}
+    }
+
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
-    input.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
-    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "End", code: "End" }));
+    if (pressEnter) {
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+      input.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+      input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
+    }
   }
 
   function triggerBuilderSearchSubmitIfPresent(input) {
@@ -445,7 +528,7 @@
         const style = window.getComputedStyle(btn);
         if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
         const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
-        if (/ประวัติ|รีเซ็ต|ล้าง|คำนวณ/.test(text)) return false;
+        if (/ประวัติ|รีเซ็ต|ล้าง|คำนวณ|วางลิงก์/.test(text)) return false;
         return /^(?:ค้นหา|ดึงข้อมูล|ดึงสเป[กค]|ตกลง|โหลด|นำเข้า|search)$/i.test(text);
       });
       if (btns.length === 1) {
@@ -470,7 +553,7 @@
     }
     parsedUrl.hostname = "ihavecpu.com";
 
-    const hadExistingSet = !isCleanSpecBuilderRoot() || hasSelectedSpec();
+    const hadExistingSet = hasSelectedSpec();
     if (hadExistingSet && !(await resetBuilder())) {
       throw new Error("พบสเป็คค้างอยู่ใน AdMeta แต่ไม่พบปุ่มรีเซ็ต");
     }
@@ -482,9 +565,10 @@
       return findSearchInput();
     }, 20000, "ไม่พบช่องค้นหาลิงก์ DIY ใน AdMeta กรุณาเปิดหน้า Spec Builder V2");
 
-    setReactInputValue(searchInput, parsedUrl.href);
+    setReactInputValue(searchInput, parsedUrl.href, { pressEnter: true, isPaste: true });
     triggerBuilderSearchSubmitIfPresent(searchInput);
     const inputStartedAt = Date.now();
+    let retriedPasteBtn = false;
     let retriedInput = false;
 
     const readyCalcButton = await waitFor(() => {
@@ -497,11 +581,20 @@
       if (isReady) {
         return calculateButton;
       }
-      if (!retriedInput && Date.now() - inputStartedAt >= 3500 && !hasSelectedSpec()) {
+      if (!retriedPasteBtn && Date.now() - inputStartedAt >= 2000 && !hasLoadedSpecParts()) {
+        retriedPasteBtn = true;
+        const pasteBtn = findPasteDIYClipboardButton();
+        if (pasteBtn) {
+          copyText(parsedUrl.href).then(() => {
+            try { pasteBtn.click(); } catch {}
+          }).catch(() => {});
+        }
+      }
+      if (!retriedInput && Date.now() - inputStartedAt >= 4000 && !hasLoadedSpecParts()) {
         const currentInput = findSearchInput();
         if (currentInput) {
           retriedInput = true;
-          setReactInputValue(currentInput, parsedUrl.href);
+          setReactInputValue(currentInput, parsedUrl.href, { pressEnter: true, isPaste: true });
           triggerBuilderSearchSubmitIfPresent(currentInput);
         }
       }
@@ -519,7 +612,7 @@
     let needsUrlReset = false;
     try {
       const didReset = await resetBuilder();
-      if (!didReset && (!isCleanSpecBuilderRoot() || hasSelectedSpec())) {
+      if (!didReset && hasSelectedSpec()) {
         needsUrlReset = true;
       }
     } catch {
@@ -545,7 +638,7 @@
       throw new Error("ไม่พบรหัสเซ็ตโปรสำหรับค้นหาใน AdMeta");
     }
 
-    const hadExistingSet = !isCleanSpecBuilderRoot() || hasSelectedSpec();
+    const hadExistingSet = hasSelectedSpec();
     if (hadExistingSet && !(await resetBuilder())) {
       throw new Error("พบสเป็คค้างอยู่ใน AdMeta แต่ไม่พบปุ่มรีเซ็ต");
     }
@@ -557,12 +650,8 @@
       return findPromoSearchInput();
     }, 20000, "ไม่พบช่องค้นหาเซ็ตโปรใน AdMeta กรุณาเปิดหน้า Spec Builder V2");
 
-    if (hadExistingSet && hasSelectedSpec()) {
-      throw new Error("AdMeta ยังมีสเป็คเดิมอยู่ กรุณากดรีเซ็ตก่อนลองใหม่");
-    }
-
     const cleanTerm = searchTerm.trim();
-    setReactInputValue(searchInput, cleanTerm);
+    setReactInputValue(searchInput, cleanTerm, { pressEnter: false });
     triggerBuilderSearchSubmitIfPresent(searchInput);
     const searchStartedAt = Date.now();
     let retriedSearch = false;
@@ -573,11 +662,11 @@
       }
       const match = findPromoSetCardOrButton(cleanTerm);
       if (match) return match;
-      if (!retriedSearch && Date.now() - searchStartedAt >= 3000) {
+      if (!retriedSearch && Date.now() - searchStartedAt >= 2500) {
         const currentInput = findPromoSearchInput();
         if (currentInput) {
           retriedSearch = true;
-          setReactInputValue(currentInput, cleanTerm);
+          setReactInputValue(currentInput, cleanTerm, { pressEnter: true });
           triggerBuilderSearchSubmitIfPresent(currentInput);
         }
       }
@@ -587,7 +676,7 @@
 
     const selectedSet = await waitFor(() => {
       const text = document.body.innerText || "";
-      const isLoaded = hasSelectedSpec() || hasLoadedSpecParts();
+      const isLoaded = hasLoadedSpecParts();
       if (isLoaded) {
         return text.match(/(?:สเป[กค]คอมพิวเตอร์ตั้งต้น|รายการสเป[กค]คอมพิวเตอร์ตั้งต้น)\s*([\s\S]*?)(?:\n2\n|ปรับแต่งและอัปเกรด)/)?.[1]?.trim() || searchTerm.trim();
       }
@@ -618,7 +707,7 @@
       "เปิดหน้าต่างประวัติการจัดสเปกแล้วแต่ไม่พบช่องค้นหาเลขที่สเปก"
     );
 
-    setReactInputValue(historyInput, code);
+    setReactInputValue(historyInput, code, { pressEnter: true });
     const submitBtn = findHistorySearchSubmitButton(historyInput);
     if (submitBtn) {
       setTimeout(() => submitBtn.click(), 80);
@@ -634,7 +723,7 @@
         const currentInput = findHistorySearchInput();
         if (currentInput) {
           retriedHistorySearch = true;
-          setReactInputValue(currentInput, code);
+          setReactInputValue(currentInput, code, { pressEnter: true });
           const btn = findHistorySearchSubmitButton(currentInput);
           if (btn) btn.click();
         }
@@ -667,7 +756,7 @@
       return await loadSpecFromHistory(cleanTerm);
     }
 
-    const hadExistingSet = !isCleanSpecBuilderRoot() || hasSelectedSpec();
+    const hadExistingSet = hasSelectedSpec();
     if (hadExistingSet && !(await resetBuilder())) {
       throw new Error("พบสเป็คค้างอยู่ใน AdMeta แต่ไม่พบปุ่มรีเซ็ต");
     }
@@ -682,7 +771,7 @@
     try {
       searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {}
-    setReactInputValue(searchInput, cleanTerm);
+    setReactInputValue(searchInput, cleanTerm, { pressEnter: false });
     triggerBuilderSearchSubmitIfPresent(searchInput);
 
     return { ok: true, searchTerm: cleanTerm };
@@ -1271,17 +1360,29 @@
 
   function setPlatformInputValue(input, value, pressEnter = false) {
     if (!input) return;
+    const strVal = String(value ?? "");
     input.focus();
     const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set ||
       function (v) { this.value = v; };
-    valueSetter.call(input, "");
-    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
-    valueSetter.call(input, value);
-    input.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: value
-    }));
+    try {
+      input.select?.();
+      document.execCommand("selectAll", false, null);
+      if (strVal === "") {
+        document.execCommand("delete", false, null);
+      } else {
+        document.execCommand("insertText", false, strVal);
+      }
+    } catch {}
+    if (input.value !== strVal) {
+      valueSetter.call(input, "");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
+      valueSetter.call(input, strVal);
+      input.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: strVal
+      }));
+    }
     input.dispatchEvent(new Event("change", { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "End", code: "End" }));
     if (pressEnter) {

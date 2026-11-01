@@ -528,7 +528,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     recordUsageAction("เปิดเซ็ตโปรใน AdMeta");
-    runWithAutoResetRetry(sender.tab?.id, () => openPromoSetForUpgrade(message.searchTerm))
+    openPromoSetForUpgrade(message.searchTerm)
       .then((result) => {
         sendResponse(result);
         if (sender.tab?.id) {
@@ -583,7 +583,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "SEARCH_ADMETA_SPEC") {
     recordUsageAction("ค้นหาสเป็คใน AdMeta");
-    runWithAutoResetRetry(sender.tab?.id, () => searchSpecInAdmetaTab(message.searchTerm))
+    searchSpecInAdmetaTab(message.searchTerm)
       .then((result) => {
         sendResponse(result);
         if (sender.tab?.id) {
@@ -1119,11 +1119,21 @@ async function openPromoSetForUpgrade(searchTerm) {
       type: "OPEN_PROMO_SET_FOR_UPGRADE",
       searchTerm: searchTerm.trim()
     });
-  } catch (error) {
-    if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
-    const errorMessage = `ติดต่อหน้า AdMeta ไม่สำเร็จ กรุณาเข้าสู่ระบบและเปิดหน้า Spec Builder V2 แล้วลองอีกครั้ง (${error.message})`;
-    await showTabStatus(readyAdmetaTab.id, errorMessage, true);
-    throw new Error(errorMessage);
+  } catch (firstErr) {
+    if (/กรุณาเข้าสู่ระบบ AdMeta/.test(firstErr.message || "")) throw firstErr;
+    await navigateTabAndWait(readyAdmetaTab.id, "https://admeta.me/admin/spec-builder-v2", RELOAD_TIMEOUT_MS);
+    await delay(500);
+    try {
+      result = await sendAdmetaMessage(readyAdmetaTab.id, {
+        type: "OPEN_PROMO_SET_FOR_UPGRADE",
+        searchTerm: searchTerm.trim()
+      });
+    } catch (error) {
+      if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
+      const errorMessage = `ติดต่อหน้า AdMeta ไม่สำเร็จ กรุณาเข้าสู่ระบบและเปิดหน้า Spec Builder V2 แล้วลองอีกครั้ง (${error.message})`;
+      await showTabStatus(readyAdmetaTab.id, errorMessage, true);
+      throw new Error(errorMessage);
+    }
   }
   if (!result?.ok) {
     const errorMessage = result?.error || "เปิดเซ็ตโปรใน AdMeta ไม่สำเร็จ";
@@ -1181,11 +1191,21 @@ async function searchSpecInAdmetaTab(searchTerm) {
       type: "SEARCH_ADMETA_SPEC",
       searchTerm: searchTerm.trim()
     });
-  } catch (error) {
-    if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
-    const errorMessage = `ติดต่อหน้า AdMeta ไม่สำเร็จ กรุณาเข้าสู่ระบบและเปิดหน้า Spec Builder V2 แล้วลองอีกครั้ง (${error.message})`;
-    await showTabStatus(readyAdmetaTab.id, errorMessage, true);
-    throw new Error(errorMessage);
+  } catch (firstErr) {
+    if (/กรุณาเข้าสู่ระบบ AdMeta/.test(firstErr.message || "")) throw firstErr;
+    await navigateTabAndWait(readyAdmetaTab.id, "https://admeta.me/admin/spec-builder-v2", RELOAD_TIMEOUT_MS);
+    await delay(500);
+    try {
+      result = await sendAdmetaMessage(readyAdmetaTab.id, {
+        type: "SEARCH_ADMETA_SPEC",
+        searchTerm: searchTerm.trim()
+      });
+    } catch (error) {
+      if (/กรุณาเข้าสู่ระบบ AdMeta/.test(error.message || "")) throw error;
+      const errorMessage = `ติดต่อหน้า AdMeta ไม่สำเร็จ กรุณาเข้าสู่ระบบและเปิดหน้า Spec Builder V2 แล้วลองอีกครั้ง (${error.message})`;
+      await showTabStatus(readyAdmetaTab.id, errorMessage, true);
+      throw new Error(errorMessage);
+    }
   }
   if (!result?.ok) {
     const errorMessage = result?.error || "ค้นหาสเป็คใน AdMeta ไม่สำเร็จ";

@@ -1,6 +1,8 @@
 (() => {
-  if (window.__ihavecpuCopyInstalled) return;
-  window.__ihavecpuCopyInstalled = true;
+  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.23";
+  if (window.__ihavecpuCopyInstalled === currentExtVer && window.__ihavecpuCopyRuntimeAlive?.()) return;
+  window.__ihavecpuCopyInstalled = currentExtVer;
+  window.__ihavecpuCopyRuntimeAlive = () => Boolean(chrome?.runtime?.id);
 
   const STYLE_ID = "ihavecpu-copy-style";
   const BUTTON_ID = "ihavecpu-copy-floating-button";
