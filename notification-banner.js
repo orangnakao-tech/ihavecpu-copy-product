@@ -26,12 +26,11 @@
       #${BANNER_ID} {
         position: fixed !important;
         z-index: 2147483647 !important;
-        top: 50% !important;
+        top: 8px !important;
         left: 0 !important;
         width: 100vw !important;
-        transform: translateY(-50%) !important;
         overflow: hidden !important;
-        padding: 12px 0 !important;
+        padding: 4px 0 !important;
         pointer-events: none !important;
         background: transparent !important;
         border: none !important;
