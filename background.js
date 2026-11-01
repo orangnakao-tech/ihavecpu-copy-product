@@ -1945,15 +1945,31 @@ async function showAdminNoticeOnOpenPages(message) {
 }
 
 async function pollAdminUpdateNotices() {
-  const { adminNoticeCursor = "" } = await chrome.storage.local.get({ adminNoticeCursor: "" });
-  const since = adminNoticeCursor || "latest";
-  const response = await fetch(
+  const { adminNoticeCursor = "", adminNoticeSeenIds = [] } = await chrome.storage.local.get({
+    adminNoticeCursor: "",
+    adminNoticeSeenIds: []
+  });
+  const seenSet = new Set(Array.isArray(adminNoticeSeenIds) ? adminNoticeSeenIds : []);
+  const since = adminNoticeCursor || "10m";
+  const pollUrls = [
     `https://ntfy.sh/${MACHINE_STATS_TOPIC}/json?poll=1&since=${encodeURIComponent(since)}`,
-    { cache: "no-store" }
-  );
-  if (!response.ok) throw new Error(`ntfy returned HTTP ${response.status}`);
+    `https://ntfy.envs.net/${MACHINE_STATS_TOPIC}/json?poll=1&since=10m`
+  ];
 
-  const lines = (await response.text()).trim().split("\n");
+  let lines = [];
+  for (const url of pollUrls) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (response.ok) {
+        const text = (await response.text()).trim();
+        if (text) {
+          lines.push(...text.split("\n"));
+        }
+      }
+    } catch {}
+  }
+  if (lines.length === 0) return;
+
   let cursor = adminNoticeCursor;
   let machineId;
   for (const line of lines) {
@@ -1962,10 +1978,9 @@ async function pollAdminUpdateNotices() {
     try {
       event = JSON.parse(line);
     } catch (error) {
-      console.warn("Skipping malformed admin-notice event:", error);
       continue;
     }
-    if (event.id) cursor = event.id;
+    if (event.id && urlFromNtfySh(event)) cursor = event.id;
     if (event.event !== "message" || typeof event.message !== "string") continue;
 
     let notice;
@@ -1981,21 +1996,50 @@ async function pollAdminUpdateNotices() {
       continue;
     }
 
+    const dedupKey = `${notice.sentAt || event.time || event.id}_${notice.targetMachineId}_${notice.message.trim()}`;
+    if (seenSet.has(dedupKey)) continue;
+    seenSet.add(dedupKey);
+
     if (notice.targetMachineId !== "*") {
       if (typeof notice.targetMachineId !== "string" || !notice.targetMachineId) continue;
       if (machineId === undefined) {
-        const deviceInfoResponse = await fetch(chrome.runtime.getURL("device-info.json"), { cache: "no-store" });
-        if (deviceInfoResponse.ok) {
-          const deviceInfo = await deviceInfoResponse.json();
-          machineId = deviceInfo?.machineId || "";
-        }
-        if (!machineId) {
-          const { machineUid = "" } = await chrome.storage.local.get({ machineUid: "" });
-          machineId = machineUid;
+        machineId = "";
+        try {
+          const deviceInfoResponse = await fetch(chrome.runtime.getURL("device-info.json"), { cache: "no-store" });
+          if (deviceInfoResponse.ok) {
+            const deviceInfo = await deviceInfoResponse.json();
+            machineId = deviceInfo?.machineId || "";
+          }
+        } catch {}
+      }
+      const { machineUid = "", cachedStaffName = "" } = await chrome.storage.local.get({
+        machineUid: "",
+        cachedStaffName: ""
+      });
+      const myIds = new Set([machineId, machineUid].filter(Boolean));
+      const targetIds = new Set([
+        notice.targetMachineId,
+        ...(Array.isArray(notice.targetMachineIds) ? notice.targetMachineIds : [])
+      ].filter(Boolean));
+
+      let isTargetMatch = false;
+      for (const id of myIds) {
+        if (targetIds.has(id)) {
+          isTargetMatch = true;
+          break;
         }
       }
-      if (notice.targetMachineId !== machineId) continue;
+      if (!isTargetMatch && notice.targetStaff && cachedStaffName) {
+        if (sanitizeStaffName(notice.targetStaff) === sanitizeStaffName(cachedStaffName)) {
+          isTargetMatch = true;
+        }
+      }
+      if (!isTargetMatch) continue;
     }
+
+    // Trigger background update check & protocol updater immediately when notified by admin
+    checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true }).catch(() => {});
+    triggerProtocolUpdaterInOpenTab().catch(() => {});
 
     const displayedCount = await showAdminNoticeOnOpenPages(notice.message.trim());
     if (!displayedCount) {
@@ -2012,15 +2056,21 @@ async function pollAdminUpdateNotices() {
       }
     }
   }
-  if (cursor && cursor !== adminNoticeCursor) {
-    await chrome.storage.local.set({ adminNoticeCursor: cursor });
-  }
+  const recentSeen = Array.from(seenSet).slice(-50);
+  await chrome.storage.local.set({
+    adminNoticeCursor: cursor || adminNoticeCursor,
+    adminNoticeSeenIds: recentSeen
+  });
+}
+
+function urlFromNtfySh(event) {
+  return Boolean(event && typeof event.id === "string" && event.id.length > 0);
 }
 
 async function setupAdminNoticeAlarm() {
   await chrome.alarms.create(ADMIN_NOTICE_ALARM_NAME, {
-    delayInMinutes: 0.1,
-    periodInMinutes: 0.5
+    delayInMinutes: 0.2,
+    periodInMinutes: 1
   });
   await initializeAdminNoticeCursor();
 }
@@ -2163,11 +2213,34 @@ async function sendMachineHeartbeat(force = false, overrideVersion = "") {
       actions: mergedActions
     };
 
-    await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-      headers: { "Content-Type": "text/plain; charset=utf-8" }
-    });
+    const bodyStr = JSON.stringify(payload);
+    let sentOk = false;
+    try {
+      const res = await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}`, {
+        method: "POST",
+        body: bodyStr,
+        headers: { "Content-Type": "text/plain; charset=utf-8" }
+      });
+      if (res.ok) sentOk = true;
+    } catch {}
+
+    if (!sentOk) {
+      try {
+        await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}/publish?message=${encodeURIComponent(bodyStr)}`, {
+          method: "GET",
+          mode: "no-cors",
+          cache: "no-store"
+        });
+      } catch {}
+    }
+
+    try {
+      await fetch(`https://ntfy.envs.net/${MACHINE_STATS_TOPIC}`, {
+        method: "POST",
+        body: bodyStr,
+        headers: { "Content-Type": "text/plain; charset=utf-8" }
+      });
+    } catch {}
   } catch {}
 }
 
