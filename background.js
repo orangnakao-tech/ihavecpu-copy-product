@@ -7,9 +7,17 @@ const RELOAD_TIMEOUT_MS = 20000;
 const MATCHING_URL_PATTERNS = [
   "https://ihavecpu.com/*",
   "https://www.ihavecpu.com/*",
-  "https://admeta.me/admin/*",
+  "https://admeta.me/*",
   "https://app.zaapi.com/*"
 ];
+
+function isAdmetaSpecBuilderUrl(url) {
+  return /^https:\/\/admeta\.me\/(?:admin\/)?spec-builder(?:-v\d+)?(?:\/|\?|$|#)/i.test(url || "");
+}
+
+function isAdmetaPlatformCalcUrl(url) {
+  return /^https:\/\/admeta\.me\/(?:admin\/)?(?:platform\/calculator|calculator|platform-calculator)(?:\/|\?|$|#)/i.test(url || "");
+}
 
 let lastZaapiTabId = null;
 let zaapiInteractionSequence = 0;
@@ -739,6 +747,7 @@ async function getReadyDIYTab(sourceTabId) {
 
 async function sendAdmetaMessage(tabId, message) {
   let lastError;
+  let injectedOnce = false;
   for (let attempt = 0; attempt < 30; attempt++) {
     const tab = await chrome.tabs.get(tabId);
     const rawUrl = tab.url || tab.pendingUrl || "";
@@ -756,11 +765,20 @@ async function sendAdmetaMessage(tabId, message) {
         throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองอีกครั้ง");
       }
     }
-    if (tab.status === "complete" && /^https:\/\/admeta\.me\/admin\/spec-builder-v2/i.test(tab.url || "")) {
+    if (tab.status === "complete" && isAdmetaSpecBuilderUrl(tab.url || "")) {
       try {
         return await chrome.tabs.sendMessage(tabId, message);
       } catch (error) {
         lastError = error;
+        if (!injectedOnce && chrome.scripting?.executeScript) {
+          injectedOnce = true;
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId },
+              files: ["admeta-spec-builder.js"]
+            });
+          } catch {}
+        }
       }
     }
     await delay(500);
@@ -894,7 +912,7 @@ async function prepareAdmetaZaapi(sourceTabId) {
 
   const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
   let readyAdmetaTab = admetaTabs
-    .filter((tab) => /^https:\/\/admeta\.me\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(tab.url || ""))
+    .filter((tab) => isAdmetaSpecBuilderUrl(tab.url || ""))
     .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
 
   if (!readyAdmetaTab?.id) {
@@ -987,7 +1005,7 @@ async function prepareAdmetaCopyOnly(sourceTabId) {
 
   const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
   let readyAdmetaTab = admetaTabs
-    .filter((tab) => /^https:\/\/admeta\.me\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(tab.url || ""))
+    .filter((tab) => isAdmetaSpecBuilderUrl(tab.url || ""))
     .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
 
   if (!readyAdmetaTab?.id) {
@@ -1063,7 +1081,7 @@ async function openPromoSetForUpgrade(searchTerm) {
 
   const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
   const admetaTab = admetaTabs
-    .filter((tab) => /^https:\/\/admeta\.me\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(tab.url || ""))
+    .filter((tab) => isAdmetaSpecBuilderUrl(tab.url || ""))
     .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
   let readyAdmetaTab = admetaTab;
 
@@ -1124,7 +1142,7 @@ async function searchSpecInAdmetaTab(searchTerm) {
 
   const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
   const admetaTab = admetaTabs
-    .filter((tab) => /^https:\/\/admeta\.me\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(tab.url || ""))
+    .filter((tab) => isAdmetaSpecBuilderUrl(tab.url || ""))
     .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
   let readyAdmetaTab = admetaTab;
 
@@ -1187,6 +1205,7 @@ async function searchSpecInAdmetaTab(searchTerm) {
 
 async function sendPlatformCalculatorMessage(tabId, message) {
   let lastError;
+  let injectedOnce = false;
   for (let attempt = 0; attempt < 30; attempt++) {
     const tab = await chrome.tabs.get(tabId);
     const rawUrl = tab.pendingUrl || tab.url || "";
@@ -1204,11 +1223,20 @@ async function sendPlatformCalculatorMessage(tabId, message) {
         throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองอีกครั้ง");
       }
     }
-    if (tab.status === "complete" && /^https:\/\/admeta\.me\/admin\/platform\/calculator/i.test(tab.url || "")) {
+    if (tab.status === "complete" && isAdmetaPlatformCalcUrl(tab.url || "")) {
       try {
         return await chrome.tabs.sendMessage(tabId, message);
       } catch (error) {
         lastError = error;
+        if (!injectedOnce && chrome.scripting?.executeScript) {
+          injectedOnce = true;
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId },
+              files: ["admeta-spec-builder.js"]
+            });
+          } catch {}
+        }
       }
     }
     await delay(500);
@@ -1219,7 +1247,7 @@ async function sendPlatformCalculatorMessage(tabId, message) {
 async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "", resetFirst = false }) {
   const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
   let readyCalcTab = admetaTabs
-    .filter((tab) => /^https:\/\/admeta\.me\/admin\/platform\/calculator(?:\/.*|\?.*|#.*)?$/i.test(tab.url || ""))
+    .filter((tab) => isAdmetaPlatformCalcUrl(tab.url || ""))
     .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
 
   if (!readyCalcTab?.id) {
@@ -1293,7 +1321,7 @@ async function openAndAddPlatformCalculatorItem({ kind, title = "", diyUrl = "",
 async function openPlatformCalculatorWithSpecData({ baseSpecTitle, basePrice, upgradedItems }) {
   const admetaTabs = await chrome.tabs.query({ url: "https://admeta.me/*" });
   let readyCalcTab = admetaTabs
-    .filter((tab) => /^https:\/\/admeta\.me\/admin\/platform\/calculator(?:\/.*|\?.*|#.*)?$/i.test(tab.url || ""))
+    .filter((tab) => isAdmetaPlatformCalcUrl(tab.url || ""))
     .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
 
   if (!readyCalcTab?.id) {
@@ -1566,7 +1594,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
       }
     }
     const admetaTabs = await chrome.tabs.query({
-      url: ["https://admeta.me/admin/*"]
+      url: ["https://admeta.me/*"]
     });
     for (const tab of admetaTabs) {
       if (tab?.id) {

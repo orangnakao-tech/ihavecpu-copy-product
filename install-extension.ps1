@@ -73,8 +73,11 @@ if (-not (Test-Path -LiteralPath $permanentDirectory)) {
   New-Item -ItemType Directory -Path $permanentDirectory -Force | Out-Null
 }
 if ($sourceDirectory -ne $permanentDirectory) {
-  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|.*(เช็ก|เครื่อง|admin).*\.bat|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip|.*โปรเจ็คลับ.*|GEMINI\.md|\.agents|monitor)$'
-  Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object { $_.Name -notmatch $excludedPattern } | ForEach-Object {
+  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|admin-dashboard\.html|.*001.*|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip|GEMINI\.md|\.agents|monitor)$'
+  $checkAdminPrefix = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)"
+  Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object {
+    $_.Name -notmatch $excludedPattern -and -not $_.Name.StartsWith($checkAdminPrefix)
+  } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $permanentDirectory -Recurse -Force
   }
 }

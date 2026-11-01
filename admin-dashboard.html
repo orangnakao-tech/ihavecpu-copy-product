@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iHAVECPU — ระบบตรวจเช็คเครื่องแอดมิน & สถานะการอัปเดต Real-Time</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Kanit', sans-serif;
+      background-color: #0b0f19;
+      background-image:
+        radial-gradient(circle at 12% 15%, rgba(239, 68, 68, 0.10), transparent 35%),
+        radial-gradient(circle at 88% 12%, rgba(59, 130, 246, 0.10), transparent 35%),
+        radial-gradient(circle at 50% 85%, rgba(16, 185, 129, 0.07), transparent 40%);
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .glass {
+      background: rgba(17, 24, 39, 0.80);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    }
+    .glass-hover {
+      transition: all 0.2s ease;
+    }
+    .glass-hover:hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      transform: translateY(-2px);
+    }
+    .pulse-dot {
+      animation: pulseGlow 2s infinite;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+      50% { opacity: 0.65; transform: scale(1.12); box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0b0f19; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  </style>
+</head>
+<body class="p-4 md:p-7">
+  <div class="max-w-7xl mx-auto space-y-6">
+
+    <!-- Top Header -->
+    <div class="glass rounded-2xl p-5 md:p-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-l-4 border-l-red-500">
+      <div class="flex items-center gap-4">
+        <div class="w-13 h-13 rounded-2xl bg-gradient-to-br from-red-600 to-orange-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-red-600/30 px-4 py-3 select-none">
+          iHC
+        </div>
+        <div>
+          <div class="flex flex-wrap items-center gap-2.5">
+            <h1 class="text-xl md:text-2xl font-bold text-white tracking-wide">
+              iHAVECPU — ศูนย์มอนิเตอร์เครื่องแอดมิน & สถานะการอัปเดต
+            </h1>
+            <span id="live-badge" class="inline-flex items-center gap-2 px-3 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-dot"></span>
+              LIVE REAL-TIME
+            </span>
+          </div>
+          <p class="text-xs md:text-sm text-slate-400 mt-1">
+            ตรวจสอบเครื่องแอดมินที่ติดตั้งส่วนขยาย เวอร์ชันปัจจุบัน สถิติการกดใช้งาน และคำแนะนำการอัปเดตรายเครื่องอัตโนมัติ
+          </p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
+        <div class="text-left lg:text-right mr-2">
+          <div class="text-xs text-slate-400">เวอร์ชันมาตรฐานล่าสุด</div>
+          <div class="flex items-center gap-2">
+            <span id="target-version-badge" class="mono text-lg font-bold text-emerald-400">v2.5.22</span>
+            <span id="last-sync-text" class="text-xs text-slate-500 mono">ซิงก์ล่าสุด: กำลังโหลด...</span>
+          </div>
+        </div>
+        <button id="btn-copy-outdated-report" type="button" class="px-4 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs md:text-sm font-semibold transition flex items-center gap-2 cursor-pointer">
+          <span>📋</span>
+          <span>คัดลอกรายชื่อเครื่องที่ยังไม่อัปเดต</span>
+        </button>
+        <button id="btn-refresh-now" type="button" class="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs md:text-sm font-semibold shadow-lg shadow-blue-600/30 transition flex items-center gap-2 cursor-pointer">
+          <span id="refresh-icon">🔄</span>
+          <span>ดึงข้อมูลสดเดี๋ยวนี้</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 4 KPI Summary Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Total Machines -->
+      <div class="glass glass-hover rounded-2xl p-5 border-t-2 border-t-blue-500/50">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>เครื่องแอดมินในระบบทั้งหมด</span>
+          <span class="px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 font-semibold">ทั้งหมด</span>
+        </div>
+        <div class="flex items-baseline gap-2 mt-2">
+          <span id="stat-total-machines" class="text-3xl font-bold text-white mono">0</span>
+          <span class="text-sm text-slate-400">เครื่อง</span>
+        </div>
+        <div id="stat-staff-identified" class="text-xs text-slate-400 mt-2">
+          ระบุชื่อแอดมินแล้ว 0 เครื่อง
+        </div>
+      </div>
+
+      <!-- Updated Status -->
+      <div class="glass glass-hover rounded-2xl p-5 border-t-2 border-t-emerald-500/50">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>สถานะการอัปเดตเวอร์ชันล่าสุด</span>
+          <span id="stat-update-pct-badge" class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-semibold mono">0%</span>
+        </div>
+        <div class="flex items-baseline gap-2 mt-2">
+          <span id="stat-updated-count" class="text-3xl font-bold text-emerald-400 mono">0</span>
+          <span class="text-sm text-slate-400">/ <span id="stat-updated-total" class="mono">0</span> เครื่อง</span>
+        </div>
+        <div class="w-full bg-slate-800 h-2 rounded-full mt-2.5 overflow-hidden">
+          <div id="stat-update-bar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+        </div>
+        <div id="stat-outdated-sub" class="text-xs text-amber-400 mt-1.5">
+          ค้างอัปเดต 0 เครื่อง
+        </div>
+      </div>
+
+      <!-- Online Active Status -->
+      <div class="glass glass-hover rounded-2xl p-5 border-t-2 border-t-purple-500/50">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>สถานะออนไลน์ & การเชื่อมต่อ</span>
+          <span class="px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 font-semibold">Real-Time</span>
+        </div>
+        <div class="flex items-baseline gap-2 mt-2">
+          <span id="stat-online-now" class="text-3xl font-bold text-purple-400 mono">0</span>
+          <span class="text-sm text-slate-400">กำลังใช้งานขณะนี้</span>
+        </div>
+        <div id="stat-online-breakdown" class="text-xs text-slate-400 mt-2">
+          ออนไลน์วันนี้ (24 ชม.): 0 เครื่อง • ออฟไลน์: 0 เครื่อง
+        </div>
+      </div>
+
+      <!-- Team Clicks -->
+      <div class="glass glass-hover rounded-2xl p-5 border-t-2 border-t-orange-500/50">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>ยอดกดใช้งานส่วนขยายรวมทั้งทีม</span>
+          <span id="stat-today-clicks-badge" class="px-2 py-0.5 rounded bg-orange-500/15 text-orange-400 font-semibold">วันนี้ +0 ครั้ง</span>
+        </div>
+        <div class="flex items-baseline gap-2 mt-2">
+          <span id="stat-total-clicks" class="text-3xl font-bold text-orange-400 mono">0</span>
+          <span class="text-sm text-slate-400">ครั้งสะสม</span>
+        </div>
+        <div id="stat-top-feature" class="text-xs text-slate-400 mt-2 truncate">
+          ฟีเจอร์ยอดนิยม: คัดลอกสินค้าพร้อมรูป
+        </div>
+      </div>
+    </div>
+
+    <!-- Actionable Recommendations Section for Outdated Machines -->
+    <div id="recommendations-panel" class="glass rounded-2xl p-5 md:p-6 border border-amber-500/30">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-xl">
+            💡
+          </div>
+          <div>
+            <h2 class="text-base md:text-lg font-bold text-white flex items-center gap-2">
+              <span>ข้อแนะนำรายเครื่องที่ยังไม่อัปเดต & วิธีแก้ไขทันที</span>
+              <span id="outdated-badge-count" class="px-2.5 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 mono">0 เครื่อง</span>
+            </h2>
+            <p class="text-xs text-slate-400">
+              วิเคราะห์สาเหตุและวิธีอัปเดตให้ตรงจุดสำหรับแต่ละเครื่อง — กดปุ่มคัดลอกคำแนะนำเพื่อส่งให้แอดมินแต่ละคนในแชตได้ทันที
+            </p>
+          </div>
+        </div>
+        <div id="version-chips-container" class="flex flex-wrap items-center gap-1.5"></div>
+      </div>
+
+      <div id="outdated-cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 mt-4">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Filter & Search Bar -->
+    <div class="glass rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2" id="filter-buttons">
+        <button data-filter="all" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 text-white transition cursor-pointer">
+          ทั้งหมด (<span id="cnt-all">0</span>)
+        </button>
+        <button data-filter="outdated" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition cursor-pointer">
+          ⚠️ ยังไม่อัปเดต (<span id="cnt-outdated">0</span>)
+        </button>
+        <button data-filter="updated" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition cursor-pointer">
+          ✅ อัปเดตล่าสุดแล้ว (<span id="cnt-updated">0</span>)
+        </button>
+        <button data-filter="online" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 transition cursor-pointer">
+          🟢 ออนไลน์ 24 ชม. (<span id="cnt-online">0</span>)
+        </button>
+        <button data-filter="active_clicks" class="filter-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-orange-300 border border-orange-500/30 transition cursor-pointer">
+          🔥 มีการกดใช้งาน (<span id="cnt-active">0</span>)
+        </button>
+      </div>
+
+      <div class="relative flex-1 max-w-md">
+        <input
+          id="search-input"
+          type="text"
+          placeholder="🔍 ค้นหาชื่อแอดมิน, ชื่อเครื่อง PC, สาขา หรือเวอร์ชัน..."
+          class="w-full bg-slate-900/90 border border-slate-700 focus:border-blue-500 rounded-xl px-4 py-2 text-xs md:text-sm text-white placeholder-slate-500 outline-none transition"
+        />
+      </div>
+    </div>
+
+    <!-- Detailed Machine Table -->
+    <div class="glass rounded-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <h2 class="font-bold text-white text-base flex items-center gap-2">
+          <span>🖥️ ตารางสถานะเครื่องแอดมินและการใช้งานทั้งหมด</span>
+        </h2>
+        <span class="text-xs text-slate-400">คลิกที่ปุ่ม "คัดลอกคำแนะนำ" ในแต่ละแถวเพื่อส่งวิธีอัปเดตให้เครื่องนั้นทันที</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60">
+              <th class="py-3.5 px-4">#</th>
+              <th class="py-3.5 px-4">ชื่อแอดมิน / สาขา</th>
+              <th class="py-3.5 px-4">เครื่องคอมพิวเตอร์ (PC / User)</th>
+              <th class="py-3.5 px-4">สถานะการใช้งาน</th>
+              <th class="py-3.5 px-4">เวอร์ชัน</th>
+              <th class="py-3.5 px-4">สถิติการกดใช้งาน</th>
+              <th class="py-3.5 px-4">คำสั่งล่าสุด & ฟีเจอร์ที่ใช้</th>
+              <th class="py-3.5 px-4">ข้อแนะนำประจำเครื่อง</th>
+            </tr>
+          </thead>
+          <tbody id="machines-tbody" class="divide-y divide-slate-800/70 text-xs md:text-sm">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 hidden px-4 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold shadow-2xl border border-emerald-400/40 transition-all"></div>
+
+  <script>
+    // Initial embedded cache from machines-cache.json so the page renders immediately even before network completes
+    const INITIAL_CACHE = {
+      "PC_19EC9F8T": { "id": "PC_19EC9F8T", "pc": "", "user": "", "staff": "พีรพล ปั้นกันอินทร์", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793255218153, "totalClicks": 171, "todayClicks": 12, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793255215151, "actions": { "คัดลอกสินค้าพร้อมรูป": 90, "คำนวณสเป็คใน AdMeta": 1, "ค้นหาสเป็คใน AdMeta": 23, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 29, "เปิดคำนวณราคาแพลตฟอร์ม": 15, "เปิดเซ็ตโปรใน AdMeta": 11, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 2 } },
+      "DESKTOP-0914487_TEAY ADMIN": { "id": "DESKTOP-0914487_TEAY ADMIN", "pc": "DESKTOP-0914487", "user": "TEAY ADMIN", "staff": "เฉลิมพงษ์ ชำนิกล้า", "branch": "สำนักงานใหญ่", "ver": "2.5.19", "ts": 1792938524568, "totalClicks": 9, "todayClicks": 9, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1792934945152, "actions": { "คัดลอกสินค้าพร้อมรูป": 5, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1, "เปิดเซ็ตโปรใน AdMeta": 3 } },
+      "PC_8BG0M98G": { "id": "PC_8BG0M98G", "pc": "", "user": "", "staff": "นครินทร์ บุญอุปถัมภ์", "branch": "สำนักงานใหญ่", "ver": "2.5.8", "ts": 1792852027320 },
+      "PC_A7YVDU2I": { "id": "PC_A7YVDU2I", "pc": "", "user": "", "staff": "ยศภัทร ศรีชู", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793082249746, "totalClicks": 118, "todayClicks": 0, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793037425303, "actions": { "คัดลอกสินค้าพร้อมรูป": 68, "คำนวณสเป็คใน AdMeta": 1, "ค้นหาสเป็คใน AdMeta": 34, "เปิดเซ็ตโปรใน AdMeta": 13, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 2 } },
+      "PC_F2HP8LUE": { "id": "PC_F2HP8LUE", "pc": "", "user": "", "staff": "ยศภัทร ศรีชู", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793086294901, "totalClicks": 118, "todayClicks": 5, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793084498389, "actions": { "คัดลอกสินค้าพร้อมรูป": 4, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1 } },
+      "PC_FKS6VWQ1": { "id": "PC_FKS6VWQ1", "pc": "", "user": "", "staff": "เฉลิมพงษ์ ชำนิกล้า", "branch": "สำนักงานใหญ่", "ver": "2.5.8", "ts": 1792852004236 },
+      "AUNG-PAO_iHC": { "id": "AUNG-PAO_iHC", "pc": "AUNG-PAO", "user": "iHC", "staff": "วันหยุด และ ประกาศ", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793262458089, "totalClicks": 83, "todayClicks": 3, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793260573828, "actions": { "คัดลอกสินค้าพร้อมรูป": 52, "ค้นหาสเป็คใน AdMeta": 4, "เปิดเซ็ตโปรใน AdMeta": 23, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 4 } },
+      "DESKTOP-SM4QN4U_iHC": { "id": "DESKTOP-SM4QN4U_iHC", "pc": "DESKTOP-SM4QN4U", "user": "iHC", "staff": "ธนกฤต โค้วสว่าง", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793258539659, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793258539659, "actions": {} },
+      "DESKTOP-1R8VGK8_IHCC TEST": { "id": "DESKTOP-1R8VGK8_IHCC TEST", "pc": "DESKTOP-1R8VGK8", "user": "IHCC TEST", "staff": "จักรพงศ์ บุตรพรหม", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793482356513, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793482356513, "actions": {} },
+      "PC_6FEG7MTU": { "id": "PC_6FEG7MTU", "pc": "", "user": "", "staff": "ดนุสรณ์ ตาลเพชร", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793234978764, "totalClicks": 41, "todayClicks": 0, "lastAction": "คีย์ลัด copy-product", "lastActionTs": 1793098436477, "actions": { "คีย์ลัด copy-product": 38, "ค้นหาสเป็คใน AdMeta": 3 } },
+      "DESKTOP-MU61BVS_ee": { "id": "DESKTOP-MU61BVS_ee", "pc": "DESKTOP-MU61BVS", "user": "ee", "staff": "ดนุสรณ์ ตาลเพชร", "branch": "สำนักงานใหญ่", "ver": "2.5.21", "ts": 1793482405905, "totalClicks": 3, "todayClicks": 0, "lastAction": "คีย์ลัด copy-product", "lastActionTs": 1793259897854, "actions": { "คัดลอกสินค้าพร้อมรูป": 2, "คีย์ลัด copy-product": 1 } },
+      "DESKTOP-D697JD3_comna": { "id": "DESKTOP-D697JD3_comna", "pc": "DESKTOP-D697JD3", "user": "comna", "staff": "นครินทร์ บุญอุปถัมภ์", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1792933620372, "totalClicks": 40, "todayClicks": 40, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1792933448842, "actions": { "คัดลอกสินค้าพร้อมรูป": 40 } },
+      "ORANGE_Administrator": { "id": "ORANGE_Administrator", "pc": "ORANGE", "user": "Administrator", "staff": "พีรพล ปั้นกันอินทร์", "branch": "สำนักงานใหญ่", "ver": "2.5.22", "ts": 1793482500000, "totalClicks": 22, "todayClicks": 22, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793259231367, "actions": { "คัดลอกสินค้าพร้อมรูป": 17, "ค้นหาสเป็คใน AdMeta": 1, "เปิดเซ็ตโปรใน AdMeta": 4 } },
+      "PC_886KFSNW": { "id": "PC_886KFSNW", "pc": "", "user": "", "staff": "ศุภชัย ลุนละลาด", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793482393183, "totalClicks": 13, "todayClicks": 0, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793338948835, "actions": { "คัดลอกสินค้าพร้อมรูป": 8, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 5 } },
+      "PC_2YSPPCM9": { "id": "PC_2YSPPCM9", "pc": "", "user": "", "staff": "พีรพล ปั้นกันอินทร์", "branch": "สำนักงานใหญ่", "ver": "2.5.7", "ts": 1792846333841 },
+      "PC_PQXRNRCR": { "id": "PC_PQXRNRCR", "pc": "", "user": "", "staff": "เฉลิมพงษ์ ชำนิกล้า", "branch": "สำนักงานใหญ่", "ver": "2.5.16", "ts": 1792929383518, "totalClicks": 1, "todayClicks": 1, "lastAction": "เปิดเซ็ตโปรใน AdMeta", "lastActionTs": 1792929380503, "actions": { "เปิดเซ็ตโปรใน AdMeta": 1 } },
+      "AUN_iHC": { "id": "AUN_iHC", "pc": "AUN", "user": "iHC", "staff": "อรรณพ รองสำลี", "branch": "สำนักงานใหญ่", "ver": "2.5.21", "ts": 1793482404213, "totalClicks": 3, "todayClicks": 0, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793259262890, "actions": { "คัดลอกสินค้าพร้อมรูป": 2, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1 } },
+      "DESKTOP-3KEM6M3_Jame": { "id": "DESKTOP-3KEM6M3_Jame", "pc": "DESKTOP-3KEM6M3", "user": "Jame", "staff": "ภูมินทร์ พินดวง", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793086320303, "totalClicks": 34, "todayClicks": 3, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793084931455, "actions": { "คัดลอกสินค้าพร้อมรูป": 27, "คำนวณสเป็คใน AdMeta": 1, "เปิดเซ็ตโปรใน AdMeta": 6 } },
+      "PC_NVFXXK1T": { "id": "PC_NVFXXK1T", "pc": "", "user": "", "staff": "", "branch": "", "ver": "2.5.20", "ts": 1793255171320, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793255171320, "actions": {} }
+    };
+
+    const NTFY_URL = "https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053/json?poll=1&since=all";
+    const GITHUB_MANIFEST_URL = "https://raw.githubusercontent.com/orangnakao-tech/ihavecpu-copy-product/main/manifest.json";
+
+    let targetVersion = "2.5.22";
+    let machinesMap = JSON.parse(JSON.stringify(INITIAL_CACHE));
+    let currentFilter = "all";
+    let searchQuery = "";
+
+    // Load saved localStorage cache if newer
+    try {
+      const saved = localStorage.getItem("ihc_admin_machines_v1");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        for (const [id, data] of Object.entries(parsed)) {
+          mergeMachineRecord(id, data);
+        }
+      }
+    } catch {}
+
+    function compareSemVer(v1, v2) {
+      const p1 = String(v1 || "0").replace(/^v/i, "").split(".").map(n => parseInt(n, 10) || 0);
+      const p2 = String(v2 || "0").replace(/^v/i, "").split(".").map(n => parseInt(n, 10) || 0);
+      const len = Math.max(p1.length, p2.length);
+      for (let i = 0; i < len; i++) {
+        const a = p1[i] || 0;
+        const b = p2[i] || 0;
+        if (a > b) return 1;
+        if (a < b) return -1;
+      }
+      return 0;
+    }
+
+    function mergeMachineRecord(id, incoming) {
+      if (!id || !incoming) return;
+      const prev = machinesMap[id] || {};
+      const merged = { ...prev, ...incoming };
+      if (!incoming.staff && prev.staff) merged.staff = prev.staff;
+      if (!incoming.branch && prev.branch) merged.branch = prev.branch;
+      if (!incoming.pc && prev.pc) merged.pc = prev.pc;
+      if (!incoming.user && prev.user) merged.user = prev.user;
+      if (incoming.totalClicks === undefined && prev.totalClicks !== undefined) merged.totalClicks = prev.totalClicks;
+      if (incoming.todayClicks === undefined && prev.todayClicks !== undefined) merged.todayClicks = prev.todayClicks;
+      if (!incoming.lastAction && prev.lastAction) merged.lastAction = prev.lastAction;
+      if (!incoming.lastActionTs && prev.lastActionTs) merged.lastActionTs = prev.lastActionTs;
+      if ((!incoming.actions || Object.keys(incoming.actions).length === 0) && prev.actions) {
+        merged.actions = prev.actions;
+      }
+      if (prev.ver && incoming.ver && compareSemVer(prev.ver, incoming.ver) > 0 && (prev.ts || 0) >= (incoming.ts || 0)) {
+        merged.ver = prev.ver;
+      }
+      machinesMap[id] = merged;
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function formatTimeAgo(ts) {
+      if (!ts) return "ไม่ทราบเวลา";
+      const diffMs = Date.now() - Number(ts);
+      if (diffMs < 0 || diffMs < 60 * 1000) return "เมื่อสักครู่";
+      const mins = Math.floor(diffMs / 60000);
+      if (mins < 60) return `${mins} นาทีที่แล้ว`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours} ชม. ที่แล้ว`;
+      const days = Math.floor(hours / 24);
+      return `${days} วันที่แล้ว`;
+    }
+
+    function formatThaiDateTime(ts) {
+      if (!ts) return "-";
+      try {
+        const d = new Date(Number(ts));
+        return d.toLocaleString("th-TH", {
+          day: "2-digit",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+      } catch {
+        return "-";
+      }
+    }
+
+    function getOnlineStatus(ts) {
+      const diffMs = Math.max(0, Date.now() - Number(ts || 0));
+      const mins = diffMs / 60000;
+      if (mins <= 20) {
+        return {
+          key: "active_now",
+          label: "กำลังใช้งาน",
+          dotClass: "bg-emerald-400 pulse-dot",
+          badgeClass: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+        };
+      }
+      if (mins <= 24 * 60) {
+        return {
+          key: "online_today",
+          label: "ออนไลน์วันนี้",
+          dotClass: "bg-blue-400",
+          badgeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30"
+        };
+      }
+      return {
+        key: "offline",
+        label: "ออฟไลน์",
+        dotClass: "bg-slate-500",
+        badgeClass: "bg-slate-800 text-slate-400 border-slate-700"
+      };
+    }
+
+    function getMachineAdvice(m) {
+      const ver = m.ver || "0.0.0";
+      const isUpdated = compareSemVer(ver, targetVersion) >= 0;
+      const isRecentAutoUpdater = compareSemVer(ver, "2.5.20") >= 0;
+      const hasStaff = Boolean((m.staff || "").trim());
+      const staffDisplay = hasStaff ? m.staff.trim() : (m.pc || m.id);
+
+      if (isUpdated) {
+        if (!hasStaff) {
+          return {
+            level: "info",
+            title: "อัปเดตล่าสุดแล้ว (รอซิงก์ชื่อแอดมิน)",
+            detail: "แนะนำให้เปิดหน้าเว็บ AdMeta แล้วล็อกอิน 1 ครั้ง ระบบจะดึงชื่อแอดมินมาแสดงอัตโนมัติ",
+            copyText: `เครื่อง ${staffDisplay} อัปเดตเป็นเวอร์ชันล่าสุด v${targetVersion} เรียบร้อยแล้วครับ (รบกวนเปิดหน้า AdMeta ทิ้งไว้ 1 ครั้งเพื่อให้ระบบซิงก์ชื่อแอดมินครับ)`
+          };
+        }
+        return {
+          level: "ok",
+          title: "พร้อมใช้งานสมบูรณ์ 100%",
+          detail: `อัปเดตเป็น v${ver} ล่าสุดแล้ว รองรับ AdMeta รูปแบบใหม่และ Zaapi ครบถ้วน`,
+          copyText: `เครื่องของคุณ (${staffDisplay}) เป็นเวอร์ชันล่าสุด v${ver} เรียบร้อยแล้ว ขอบคุณครับ`
+        };
+      }
+
+      if (isRecentAutoUpdater) {
+        return {
+          level: "soft_warn",
+          title: `รอซิงก์อัตโนมัติ (v${ver} → v${targetVersion})`,
+          detail: "เครื่องนี้มีระบบ Auto-Update แล้ว จะอัปเดตเองใน 1-3 นาที หรือกดไอคอนส่วนขยาย > กดปุ่ม 'อัปเดตและรีโหลดส่วนขยาย' ได้เลย",
+          copyText: `แจ้งคุณ ${staffDisplay} (เครื่อง ${m.pc || m.id}): ตอนนี้มีอัปเดตเวอร์ชันใหม่ v${targetVersion} (รองรับ AdMeta รูปแบบใหม่) รบกวนกดที่ไอคอนส่วนขยาย iHAVECPU มุมขวาบนของ Chrome แล้วกดปุ่ม "อัปเดตและรีโหลดส่วนขยาย" หรือดับเบิลคลิกไฟล์ "อัปเดตส่วนขยาย.bat" ได้เลยครับ`
+        };
+      }
+
+      return {
+        level: "urgent",
+        title: `เวอร์ชันเก่า (v${ver}) ต้องกดอัปเดต`,
+        detail: "1) ดับเบิลคลิกไฟล์ 'อัปเดตส่วนขยาย.bat' ในโฟลเดอร์ส่วนขยาย หรือ 2) เปิด chrome://extensions แล้วกดปุ่ม 'อัปเดต (Update)' ด้านบน",
+        copyText: `แจ้งคุณ ${staffDisplay} (เครื่อง ${m.pc || m.id}): ตอนนี้ส่วนขยายยังเป็นเวอร์ชันเก่า (v${ver}) ทำให้บางฟีเจอร์บน AdMeta รูปแบบใหม่ใช้งานไม่ได้ รบกวนดับเบิลคลิกไฟล์ "อัปเดตส่วนขยาย.bat" (หรือเปิด chrome://extensions แล้วกดปุ่มรีโหลด ↻ ที่ส่วนขยาย iHAVECPU) เพื่ออัปเดตเป็น v${targetVersion} ด้วยครับ`
+      };
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.remove("hidden");
+      clearTimeout(t.__timer);
+      t.__timer = setTimeout(() => t.classList.add("hidden"), 3200);
+    }
+
+    async function copyToClipboard(text, successMsg) {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast(successMsg || "คัดลอกข้อความเรียบร้อยแล้ว!");
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        showToast(successMsg || "คัดลอกข้อความเรียบร้อยแล้ว!");
+      }
+    }
+
+    function renderDashboard() {
+      const allMachines = Object.values(machinesMap).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+      // Detect highest version if any machine has higher than targetVersion
+      for (const m of allMachines) {
+        if (m.ver && compareSemVer(m.ver, targetVersion) > 0) {
+          targetVersion = m.ver;
+        }
+      }
+      document.getElementById("target-version-badge").textContent = `v${targetVersion}`;
+
+      const totalCount = allMachines.length;
+      const updatedList = allMachines.filter(m => compareSemVer(m.ver || "0", targetVersion) >= 0);
+      const outdatedList = allMachines.filter(m => compareSemVer(m.ver || "0", targetVersion) < 0);
+      const staffIdentifiedCount = allMachines.filter(m => (m.staff || "").trim().length > 0).length;
+
+      let activeNowCount = 0;
+      let onlineTodayCount = 0;
+      let offlineCount = 0;
+      let totalTeamClicks = 0;
+      let todayTeamClicks = 0;
+      const featureTotals = {};
+      const versionCounts = {};
+
+      for (const m of allMachines) {
+        const st = getOnlineStatus(m.ts);
+        if (st.key === "active_now") {
+          activeNowCount++;
+          onlineTodayCount++;
+        } else if (st.key === "online_today") {
+          onlineTodayCount++;
+        } else {
+          offlineCount++;
+        }
+
+        const tc = Number(m.totalClicks) || 0;
+        const tdc = Number(m.todayClicks) || 0;
+        totalTeamClicks += tc;
+        todayTeamClicks += tdc;
+
+        const vKey = m.ver ? `v${m.ver}` : "ไม่ระบุ";
+        versionCounts[vKey] = (versionCounts[vKey] || 0) + 1;
+
+        if (m.actions && typeof m.actions === "object") {
+          for (const [act, cnt] of Object.entries(m.actions)) {
+            featureTotals[act] = (featureTotals[act] || 0) + (Number(cnt) || 0);
+          }
+        }
+      }
+
+      const updatePct = totalCount > 0 ? Math.round((updatedList.length / totalCount) * 100) : 0;
+
+      // Update KPI cards
+      document.getElementById("stat-total-machines").textContent = totalCount;
+      document.getElementById("stat-staff-identified").textContent = `ระบุชื่อแอดมินแล้ว ${staffIdentifiedCount} เครื่อง • รอซิงก์ชื่อ ${totalCount - staffIdentifiedCount} เครื่อง`;
+
+      document.getElementById("stat-updated-count").textContent = updatedList.length;
+      document.getElementById("stat-updated-total").textContent = totalCount;
+      document.getElementById("stat-update-pct-badge").textContent = `${updatePct}%`;
+      document.getElementById("stat-update-bar").style.width = `${updatePct}%`;
+      document.getElementById("stat-outdated-sub").textContent = outdatedList.length > 0
+        ? `⚠️ ยังไม่อัปเดตเป็น v${targetVersion} จำนวน ${outdatedList.length} เครื่อง`
+        : `🎉 ทุกเครื่องอัปเดตเป็น v${targetVersion} ครบ 100% แล้ว!`;
+
+      document.getElementById("stat-online-now").textContent = activeNowCount;
+      document.getElementById("stat-online-breakdown").textContent = `ออนไลน์ใน 24 ชม.: ${onlineTodayCount} เครื่อง • ออฟไลน์: ${offlineCount} เครื่อง`;
+
+      document.getElementById("stat-total-clicks").textContent = totalTeamClicks.toLocaleString();
+      document.getElementById("stat-today-clicks-badge").textContent = `วันนี้ +${todayTeamClicks.toLocaleString()} ครั้ง`;
+
+      const topFeatureEntry = Object.entries(featureTotals).sort((a, b) => b[1] - a[1])[0];
+      document.getElementById("stat-top-feature").textContent = topFeatureEntry
+        ? `ฟีเจอร์ยอดนิยม: ${topFeatureEntry[0]} (${topFeatureEntry[1]} ครั้ง)`
+        : "ฟีเจอร์ยอดนิยม: คัดลอกสินค้าพร้อมรูป";
+
+      // Update filter counts
+      document.getElementById("cnt-all").textContent = totalCount;
+      document.getElementById("cnt-outdated").textContent = outdatedList.length;
+      document.getElementById("cnt-updated").textContent = updatedList.length;
+      document.getElementById("cnt-online").textContent = onlineTodayCount;
+      document.getElementById("cnt-active").textContent = allMachines.filter(m => (Number(m.totalClicks) || 0) > 0).length;
+
+      // Version distribution chips
+      const chipsHtml = Object.entries(versionCounts)
+        .sort((a, b) => compareSemVer(b[0], a[0]))
+        .map(([ver, cnt]) => {
+          const isLatest = compareSemVer(ver, targetVersion) >= 0;
+          const cls = isLatest
+            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+            : "bg-slate-800 text-amber-300 border-amber-500/30";
+          return `<span class="px-2.5 py-1 rounded-lg text-xs mono border ${cls}">${escapeHtml(ver)}: <b>${cnt}</b> เครื่อง</span>`;
+        })
+        .join("");
+      document.getElementById("version-chips-container").innerHTML = chipsHtml;
+
+      // Outdated Recommendation Cards
+      document.getElementById("outdated-badge-count").textContent = `${outdatedList.length} เครื่อง`;
+      const outdatedGrid = document.getElementById("outdated-cards-grid");
+      if (outdatedList.length === 0) {
+        outdatedGrid.innerHTML = `
+          <div class="col-span-full rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-4 text-center text-emerald-300 text-sm font-semibold">
+            ✅ ยอดเยี่ยม! เครื่องแอดมินทั้งหมด ${totalCount} เครื่องอัปเดตเป็นเวอร์ชันล่าสุด (v${targetVersion}) ครบถ้วนแล้ว
+          </div>
+        `;
+      } else {
+        outdatedGrid.innerHTML = outdatedList.map((m) => {
+          const advice = getMachineAdvice(m);
+          const st = getOnlineStatus(m.ts);
+          const staffName = (m.staff || "").trim() || "ยังไม่ระบุชื่อแอดมิน";
+          const pcLabel = m.pc ? `${m.pc}${m.user ? "\\" + m.user : ""}` : m.id;
+          const borderCls = advice.level === "urgent" ? "border-red-500/40 bg-red-950/20" : "border-amber-500/30 bg-amber-950/15";
+          const badgeCls = advice.level === "urgent" ? "bg-red-500/20 text-red-300 border-red-500/40" : "bg-amber-500/20 text-amber-300 border-amber-500/40";
+
+          return `
+            <div class="rounded-xl p-4 border ${borderCls} flex flex-col justify-between gap-3">
+              <div>
+                <div class="flex items-start justify-between gap-2">
+                  <div>
+                    <div class="font-bold text-white text-sm flex items-center gap-1.5">
+                      <span>👤 ${escapeHtml(staffName)}</span>
+                    </div>
+                    <div class="text-xs text-slate-400 mono mt-0.5">💻 ${escapeHtml(pcLabel)} ${m.branch ? "• " + escapeHtml(m.branch) : ""}</div>
+                  </div>
+                  <span class="px-2 py-0.5 rounded text-xs font-bold mono border ${badgeCls}">v${escapeHtml(m.ver || "?")}</span>
+                </div>
+                <div class="mt-2.5 text-xs font-semibold text-amber-200">${escapeHtml(advice.title)}</div>
+                <p class="mt-1 text-xs text-slate-300 leading-relaxed">${escapeHtml(advice.detail)}</p>
+              </div>
+              <div class="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                <span class="text-[11px] text-slate-400">${st.label} (${formatTimeAgo(m.ts)})</span>
+                <button
+                  type="button"
+                  data-copy-msg="${escapeHtml(advice.copyText)}"
+                  class="btn-copy-single px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-xs font-semibold transition cursor-pointer"
+                >
+                  📋 คัดลอกคำแนะนำ
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      // Filter & Search table rows
+      const filtered = allMachines.filter((m) => {
+        const isUpd = compareSemVer(m.ver || "0", targetVersion) >= 0;
+        const st = getOnlineStatus(m.ts);
+        if (currentFilter === "outdated" && isUpd) return false;
+        if (currentFilter === "updated" && !isUpd) return false;
+        if (currentFilter === "online" && st.key === "offline") return false;
+        if (currentFilter === "active_clicks" && (Number(m.totalClicks) || 0) <= 0) return false;
+
+        if (searchQuery) {
+          const hay = `${m.staff || ""} ${m.branch || ""} ${m.pc || ""} ${m.user || ""} ${m.id || ""} ${m.ver || ""} ${m.lastAction || ""}`.toLowerCase();
+          if (!hay.includes(searchQuery.toLowerCase())) return false;
+        }
+        return true;
+      });
+
+      const tbody = document.getElementById("machines-tbody");
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="py-10 text-center text-slate-400">
+              ไม่พบรายการเครื่องแอดมินที่ตรงกับเงื่อนไขการค้นหา
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map((m, idx) => {
+        const isUpd = compareSemVer(m.ver || "0", targetVersion) >= 0;
+        const st = getOnlineStatus(m.ts);
+        const advice = getMachineAdvice(m);
+        const staffName = (m.staff || "").trim();
+        const pcLabel = m.pc ? `${m.pc}${m.user ? "\\" + m.user : ""}` : m.id;
+        const totalClicks = Number(m.totalClicks) || 0;
+        const todayClicks = Number(m.todayClicks) || 0;
+        const clickRatio = totalTeamClicks > 0 ? Math.min(100, Math.round((totalClicks / totalTeamClicks) * 100)) : 0;
+
+        let usageBadge = `<span class="px-2 py-0.5 rounded text-[11px] bg-slate-800 text-slate-400">เปิดสแตนด์บาย</span>`;
+        if (totalClicks >= 80) {
+          usageBadge = `<span class="px-2 py-0.5 rounded text-[11px] bg-orange-500/20 text-orange-300 border border-orange-500/30 font-semibold">🔥 ใช้งานหนักมาก</span>`;
+        } else if (totalClicks >= 20) {
+          usageBadge = `<span class="px-2 py-0.5 rounded text-[11px] bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">⚡ ใช้งานต่อเนื่อง</span>`;
+        } else if (totalClicks >= 1) {
+          usageBadge = `<span class="px-2 py-0.5 rounded text-[11px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">✓ ใช้งานปกติ</span>`;
+        }
+
+        const actionsList = m.actions && typeof m.actions === "object"
+          ? Object.entries(m.actions)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([k, v]) => `<span class="inline-block px-2 py-0.5 rounded bg-slate-800/90 text-slate-300 text-[11px] mr-1 mb-1">${escapeHtml(k)}: <b>${v}</b></span>`)
+              .join("")
+          : "";
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3.5 px-4 mono text-slate-400">${idx + 1}</td>
+            <td class="py-3.5 px-4">
+              <div class="font-semibold text-white">
+                ${staffName ? `👤 ${escapeHtml(staffName)}` : `<span class="text-slate-400 italic">ยังไม่ระบุชื่อ (รอเปิด AdMeta)</span>`}
+              </div>
+              <div class="text-xs text-slate-400 mt-0.5">${escapeHtml(m.branch || "สำนักงานใหญ่")}</div>
+            </td>
+            <td class="py-3.5 px-4">
+              <div class="mono text-xs font-semibold text-slate-200">${escapeHtml(pcLabel)}</div>
+              <div class="mono text-[11px] text-slate-500">ID: ${escapeHtml(m.id)}</div>
+            </td>
+            <td class="py-3.5 px-4">
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${st.badgeClass}">
+                <span class="w-2 h-2 rounded-full ${st.dotClass}"></span>
+                ${st.label}
+              </span>
+              <div class="text-[11px] text-slate-400 mt-1">${formatTimeAgo(m.ts)} (${formatThaiDateTime(m.ts)})</div>
+            </td>
+            <td class="py-3.5 px-4">
+              ${isUpd
+                ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">✓ v${escapeHtml(m.ver)}</span>
+                   <div class="text-[11px] text-emerald-400 mt-1">อัปเดตล่าสุดแล้ว</div>`
+                : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold mono bg-amber-500/20 text-amber-300 border border-amber-500/40">⚠️ v${escapeHtml(m.ver || "?")}</span>
+                   <div class="text-[11px] text-amber-400 mt-1">ต้องอัปเดตเป็น v${targetVersion}</div>`
+              }
+            </td>
+            <td class="py-3.5 px-4">
+              <div class="flex items-center gap-2">
+                <span class="mono font-bold text-white">${totalClicks.toLocaleString()} ครั้ง</span>
+                <span class="text-xs text-orange-400 font-semibold">(วันนี้ +${todayClicks})</span>
+              </div>
+              <div class="w-32 bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                <div class="bg-orange-500 h-full rounded-full" style="width: ${clickRatio}%"></div>
+              </div>
+              <div class="mt-1.5">${usageBadge}</div>
+            </td>
+            <td class="py-3.5 px-4 max-w-xs">
+              <div class="text-xs text-slate-200 font-medium truncate">⚡ ${escapeHtml(m.lastAction || "เปิดส่วนขยายพร้อมใช้งาน")}</div>
+              <div class="mt-1.5 flex flex-wrap">${actionsList || `<span class="text-[11px] text-slate-500">ยังไม่มีประวัติกดปุ่ม</span>`}</div>
+            </td>
+            <td class="py-3.5 px-4 max-w-xs">
+              <div class="text-xs font-semibold ${isUpd ? "text-emerald-300" : "text-amber-300"}">${escapeHtml(advice.title)}</div>
+              <div class="text-[11px] text-slate-400 mt-0.5 leading-snug">${escapeHtml(advice.detail)}</div>
+              <button
+                type="button"
+                data-copy-msg="${escapeHtml(advice.copyText)}"
+                class="btn-copy-single mt-2 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold transition cursor-pointer"
+              >
+                📋 คัดลอกคำแนะนำ
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function syncLiveRegistry() {
+      const refreshIcon = document.getElementById("refresh-icon");
+      refreshIcon.classList.add("animate-spin");
+
+      try {
+        // 1. Check latest GitHub version
+        try {
+          const ghRes = await fetch(`${GITHUB_MANIFEST_URL}?t=${Date.now()}`, { cache: "no-store" });
+          if (ghRes.ok) {
+            const mf = await ghRes.json();
+            if (mf && mf.version && compareSemVer(mf.version, targetVersion) > 0) {
+              targetVersion = String(mf.version);
+            }
+          }
+        } catch {}
+
+        // 2. Fetch live telemetry from ntfy
+        const res = await fetch(`${NTFY_URL}&t=${Date.now()}`, { cache: "no-store" });
+        if (res.ok) {
+          const text = await res.text();
+          const lines = text.trim().split("\n");
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const ev = JSON.parse(line);
+              if (ev.event === "message" && ev.message) {
+                const data = JSON.parse(ev.message);
+                if (data && data.id) {
+                  mergeMachineRecord(data.id, data);
+                }
+              }
+            } catch {}
+          }
+          try {
+            localStorage.setItem("ihc_admin_machines_v1", JSON.stringify(machinesMap));
+          } catch {}
+          const nowStr = new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          document.getElementById("last-sync-text").textContent = `ซิงก์ล่าสุด: ${nowStr}`;
+        }
+      } catch (err) {
+        console.warn("Live sync warning:", err);
+      } finally {
+        refreshIcon.classList.remove("animate-spin");
+        renderDashboard();
+      }
+    }
+
+    // Event Listeners
+    document.getElementById("btn-refresh-now").addEventListener("click", () => {
+      syncLiveRegistry();
+      showToast("ดึงข้อมูลสถานะเครื่องแอดมินล่าสุดเรียบร้อยแล้ว");
+    });
+
+    document.getElementById("btn-copy-outdated-report").addEventListener("click", () => {
+      const allMachines = Object.values(machinesMap).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      const outdated = allMachines.filter(m => compareSemVer(m.ver || "0", targetVersion) < 0);
+      if (outdated.length === 0) {
+        copyToClipboard(`✅ เครื่องแอดมินทั้งหมด ${allMachines.length} เครื่องอัปเดตเป็นเวอร์ชันล่าสุด v${targetVersion} ครบ 100% แล้ว!`, "คัดลอกสรุปสถานะเรียบร้อยแล้ว!");
+        return;
+      }
+      const lines = [
+        `📢 แจ้งอัปเดตส่วนขยาย iHAVECPU คัดลอกสินค้า + รูป (เวอร์ชันล่าสุด v${targetVersion} รองรับ AdMeta รูปแบบใหม่)`,
+        `พบเครื่องที่ยังไม่ได้อัปเดตจำนวน ${outdated.length} เครื่อง ดังนี้:`,
+        ""
+      ];
+      outdated.forEach((m, i) => {
+        const staff = (m.staff || "").trim() || "ยังไม่ระบุชื่อแอดมิน";
+        const pc = m.pc ? `${m.pc}${m.user ? "\\" + m.user : ""}` : m.id;
+        lines.push(`${i + 1}. คุณ ${staff} (${pc}) — ปัจจุบัน v${m.ver || "?"}`);
+      });
+      lines.push("");
+      lines.push("💡 วิธีอัปเดต (ทำครั้งเดียวจบ):");
+      lines.push("1) ดับเบิลคลิกไฟล์ 'อัปเดตส่วนขยาย.bat' ในโฟลเดอร์ส่วนขยาย หรือ");
+      lines.push("2) กดที่ไอคอนส่วนขยายมุมขวาบนของ Chrome แล้วกด 'อัปเดตและรีโหลดส่วนขยาย'");
+      copyToClipboard(lines.join("\n"), "คัดลอกรายชื่อเครื่องที่ยังไม่อัปเดตพร้อมวิธีแก้ไขแล้ว!");
+    });
+
+    document.addEventListener("click", (e) => {
+      const copyBtn = e.target.closest(".btn-copy-single");
+      if (copyBtn) {
+        const msg = copyBtn.getAttribute("data-copy-msg") || "";
+        if (msg) copyToClipboard(msg, "คัดลอกคำแนะนำสำหรับเครื่องนี้แล้ว!");
+      }
+    });
+
+    document.querySelectorAll(".filter-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentFilter = btn.getAttribute("data-filter") || "all";
+        document.querySelectorAll(".filter-btn").forEach((b) => {
+          b.classList.remove("bg-blue-600", "text-white");
+          b.classList.add("bg-slate-800");
+        });
+        btn.classList.remove("bg-slate-800");
+        btn.classList.add("bg-blue-600", "text-white");
+        renderDashboard();
+      });
+    });
+
+    document.getElementById("search-input").addEventListener("input", (e) => {
+      searchQuery = e.target.value || "";
+      renderDashboard();
+    });
+
+    // Initial render + Live Auto-Sync every 5 seconds
+    renderDashboard();
+    syncLiveRegistry();
+    setInterval(syncLiveRegistry, 5000);
+  </script>
+</body>
+</html>

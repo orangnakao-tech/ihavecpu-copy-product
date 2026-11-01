@@ -29,9 +29,11 @@
 
   const ADMETA_SELECTORS = {
     customerMessage: [
-      '.card[title="คลิกเพื่อก๊อบปี้ข้อความ"] textarea[readonly]',
-      '[title="คลิกเพื่อก๊อบปี้ข้อความ"] textarea[readonly]',
-      'textarea[readonly]'
+      '.card[title*="ก๊อบปี้ข้อความ"] textarea',
+      '[title*="ก๊อบปี้ข้อความ"] textarea',
+      '[title*="คัดลอกข้อความ"] textarea',
+      'textarea[readonly]',
+      'textarea'
     ],
     mainSearch: [
       'input[placeholder*="พิมพ์ชื่อเซ็ต"]',
@@ -41,16 +43,37 @@
       'input[placeholder*="30000"]',
       'input[placeholder*="SKU" i]',
       'input[placeholder*="ค้นหาเซ็ต"]',
+      'input[placeholder*="ค้นหาสเป"]',
+      'input[placeholder*="จัดสเป"]',
+      'input[placeholder*="ค้นหา"]',
       'input[aria-label*="ค้นหา" i]',
       'input[aria-label*="DIY" i]',
       'input[aria-label*="เซ็ต" i]'
     ],
     loginPassword: 'input[type="password"]',
-    diyParts: "tbody tr",
-    resetButton: "button.bs-btn-reset",
-    calculateButton: "button.bs-btn-calc",
+    diyParts: "tbody tr, [class*='part-row'], [class*='component-row'], [class*='spec-item']",
+    resetButton: "button.bs-btn-reset, [class*='btn-reset']",
+    calculateButton: "button.bs-btn-calc, [class*='btn-calc']",
     setResults: ["button.list-group-item-action", "[role='button']", "button", "a"]
   };
+
+  function isSpecBuilderPage() {
+    if (location.hostname !== "admeta.me") return false;
+    if (/\/(?:admin\/)?spec-builder(?:-v\d+)?/i.test(location.pathname)) return true;
+    const bodyText = document.body?.innerText || "";
+    return /จัดสเป[กค]|Spec\s*Builder|ราคาสเป[กค]ตั้งต้น|สเป[กค]คอมพิวเตอร์ตั้งต้น/i.test(bodyText);
+  }
+
+  function isCleanSpecBuilderRoot() {
+    return /^\/(?:admin\/)?spec-builder(?:-v\d+)?\/?$/i.test(location.pathname);
+  }
+
+  function isPlatformCalculatorPage() {
+    if (location.hostname !== "admeta.me") return false;
+    if (/\/(?:admin\/)?(?:platform\/calculator|calculator|platform-calculator)/i.test(location.pathname)) return true;
+    const bodyText = document.body?.innerText || "";
+    return /คำนวณราคา.*แพลตฟอร์ม|ราคาลงขายสุทธิ|เพิ่มคอมเซ็ต/i.test(bodyText);
+  }
 
   function waitFor(predicate, timeoutMs, errorMessage) {
     return new Promise((resolve, reject) => {
@@ -87,24 +110,50 @@
   }
 
   function findCustomerMessage() {
-    const messageArea = document.querySelector(ADMETA_SELECTORS.customerMessage[0]) ||
-      document.querySelector(ADMETA_SELECTORS.customerMessage[1]);
-    if (messageArea?.value.trim()) return messageArea.value.trim();
+    for (let i = 0; i < 3; i++) {
+      const area = document.querySelector(ADMETA_SELECTORS.customerMessage[i]);
+      if (area?.value && area.value.trim()) return area.value.trim();
+    }
 
-    return [...document.querySelectorAll(ADMETA_SELECTORS.customerMessage[2])]
-      .map((textarea) => textarea.value.trim())
-      .find((value) => value && value.includes("เลขที่จัดสเปก:")) || "";
+    const allTextareas = [...document.querySelectorAll("textarea")];
+    for (const ta of allTextareas) {
+      const val = (ta.value || ta.textContent || "").trim();
+      if (!val || val.length < 20) continue;
+      if (
+        /เลขที่(?:จัด)?สเป[กค]|รหัส(?:จัด)?สเป[กค]|SB-\d{4}-\d+/i.test(val) ||
+        (/(?:CPU|Mainboard|VGA|RAM|SSD|PSU|Case|ซีพียู|เมนบอร์ด|การ์ดจอ)/i.test(val) && /(?:รวม|สุทธิ|ราคา|฿|\.-)/i.test(val))
+      ) {
+        return val;
+      }
+    }
+
+    const copyContainers = [
+      ...document.querySelectorAll('[title*="ก๊อบปี้ข้อความ"], [title*="คัดลอกข้อความ"], pre, code, [class*="message-preview"], [class*="customer-message"], [class*="quote-text"]')
+    ];
+    for (const el of copyContainers) {
+      const val = (el.value || el.innerText || el.textContent || "").trim();
+      if (val && val.length >= 25 && /เลขที่(?:จัด)?สเป[กค]|SB-\d{4}-\d+|(?:CPU.*Mainboard)/is.test(val)) {
+        return val;
+      }
+    }
+
+    return "";
   }
 
   function findMainBuilderSearchInput() {
+    const isExcludedBuilderInput = (input) => {
+      const ph = `${input.placeholder || ""} ${input.getAttribute("aria-label") || ""} ${input.name || ""}`;
+      return /พัดลม|เมาส์|หูฟัง|อุปกรณ์เสริม|สต็อก|เลขที่สเป|โทเค็นแชร์|ชื่อลูกค้า|รหัสผ่าน|password/i.test(ph);
+    };
+
     // 1. Check primary declared selectors
     for (const selector of ADMETA_SELECTORS.mainSearch) {
-      const match = [...document.querySelectorAll(selector)].find(isVisibleInput);
+      const match = [...document.querySelectorAll(selector)].find((el) => isVisibleInput(el) && !isExcludedBuilderInput(el));
       if (match) return match;
     }
 
-    // 2. Scan all visible inputs for keywords from the placeholder: "ชื่อเซ็ต", "DIY", "งบประมาณ", "30000", "SKU"
-    const allInputs = [...document.querySelectorAll("input")].filter(isVisibleInput);
+    // 2. Scan all visible inputs for keywords from the placeholder: "ชื่อเซ็ต", "DIY", "งบประมาณ", "30000", "SKU", "สเปก", "ค้นหา"
+    const allInputs = [...document.querySelectorAll("input")].filter((el) => isVisibleInput(el) && !isExcludedBuilderInput(el));
     const matched = allInputs.find((input) => {
       const text = `${input.placeholder || ""} ${input.getAttribute("aria-label") || ""} ${input.title || ""}`.toLowerCase();
       return text.includes("ชื่อเซ็ต") ||
@@ -112,18 +161,15 @@
         text.includes("งบประมาณ") ||
         text.includes("30000") ||
         text.includes("sku") ||
-        text.includes("เซ็ต");
+        text.includes("เซ็ต") ||
+        text.includes("สเปก") ||
+        text.includes("สเปค") ||
+        text.includes("ค้นหา");
     });
     if (matched) return matched;
 
-    // 3. Fallback: First text input on the page excluding accessories input ("พัดลม, เมาส์, หูฟัง") and history modal input
-    const firstBuilderInput = allInputs.find((input) => {
-      const ph = input.placeholder || "";
-      return !/พัดลม|เมาส์|หูฟัง|สต็อก|เลขที่สเปก|โทเค็นแชร์/i.test(ph);
-    });
-    if (firstBuilderInput) return firstBuilderInput;
-
-    return null;
+    // 3. Fallback: First visible text/search input on the page excluding accessories & history modal input
+    return allInputs[0] || null;
   }
 
   function findHistoryButton() {
@@ -132,14 +178,17 @@
       const style = window.getComputedStyle(el);
       if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
       const text = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
-      return text === "ประวัติ" || /^ประวัติ(?:\s|$)/.test(text);
+      const title = `${el.getAttribute("title") || ""} ${el.getAttribute("aria-label") || ""}`;
+      return text === "ประวัติ" || /^ประวัติ(?:\s|$|การจัด)/.test(text) || /ประวัติการจัดสเป|history/i.test(title);
     });
     return candidates[0] || null;
   }
 
   function findHistorySearchInput() {
     const selectors = [
-      'input[placeholder*="เลขที่สเปก"]',
+      'input[placeholder*="เลขที่สเป"]',
+      'input[placeholder*="รหัสสเป"]',
+      'input[placeholder*="SB-" i]',
       'input[placeholder*="โทเค็นแชร์"]',
       'input[placeholder*="ชื่อลูกค้า"]'
     ];
@@ -147,11 +196,12 @@
       const match = [...document.querySelectorAll(sel)].find(isVisibleInput);
       if (match) return match;
     }
-    const modals = [...document.querySelectorAll(".modal, [role='dialog'], [class*='modal'], div")]
+    const modals = [...document.querySelectorAll(".modal, [role='dialog'], [class*='modal'], [class*='drawer'], div")]
       .filter((el) => {
         if (!el || el.children.length === 0) return false;
         const style = window.getComputedStyle(el);
-        return style.display !== "none" && style.visibility !== "hidden" && (el.innerText || "").includes("ประวัติการจัดสเปก");
+        return style.display !== "none" && style.visibility !== "hidden" &&
+          /ประวัติการจัดสเป|ประวัติสเป|รายการประวัติ/i.test(el.innerText || "");
       });
     for (const modal of modals) {
       const inp = [...modal.querySelectorAll("input")].find(isVisibleInput);
@@ -168,7 +218,7 @@
         const style = window.getComputedStyle(btn);
         if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
         const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
-        return text === "ค้นหา";
+        return /^(?:ค้นหา|ตกลง|กรอง|search)$/i.test(text);
       });
       if (buttons.length > 0) return buttons[0];
       container = container.parentElement;
@@ -178,9 +228,13 @@
 
   function findHistoryLoadButton(specCode) {
     const upperCode = specCode.trim().toUpperCase();
-    const rows = [...document.querySelectorAll("tr")].filter((row) => {
+    const rowSelectors = "tr, [class*='row'], [class*='item'], .card, .list-group-item, li, div";
+    const rows = [...document.querySelectorAll(rowSelectors)].filter((row) => {
+      if (!row || row.children.length === 0) return false;
       const style = window.getComputedStyle(row);
       if (style.display === "none" || style.visibility === "hidden") return false;
+      const r = row.getBoundingClientRect();
+      if (r.height < 24 || r.height > 260) return false;
       return (row.innerText || "").toUpperCase().includes(upperCode);
     });
     for (const row of rows) {
@@ -189,7 +243,7 @@
         const style = window.getComputedStyle(btn);
         if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
         const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
-        return text === "โหลด" || /โหลด/.test(text);
+        return /^(?:โหลด|เลือก|ใช้สเป[กค]นี้|เปิด|load|select)/i.test(text) || /โหลด|เลือกสเป/i.test(text);
       });
       if (loadBtn) return loadBtn;
     }
@@ -278,22 +332,53 @@
 
   function findResetButton() {
     const primary = document.querySelector(ADMETA_SELECTORS.resetButton);
-    if (primary) return primary;
-    const buttons = [...document.querySelectorAll("button, [role='button']")];
+    if (primary && !primary.id?.startsWith("ihc-")) return primary;
+    const buttons = [...document.querySelectorAll("button, [role='button'], a")];
     return buttons.find((btn) => {
-      if (!btn || btn.disabled) return false;
+      if (!btn || btn.disabled || btn.id?.startsWith("ihc-")) return false;
       const style = window.getComputedStyle(btn);
-      if (style.display === "none" || style.visibility === "hidden") return false;
-      const text = (btn.innerText || btn.textContent || "").trim();
-      return /^(?:รีเซ็ต|ล้างสเปก|ล้างข้อมูล|เริ่มใหม่|เปลี่ยนสเปก)/i.test(text);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+      return /^(?:รีเซ็ต|ล้างสเป[กค]|ล้างข้อมูล|เริ่มใหม่|เปลี่ยนสเป[กค]|เลือกสเป[กค]ใหม่|ย้อนกลับ|reset|clear)/i.test(text);
     }) || null;
+  }
+
+  function findCalculateButton() {
+    const primary = document.querySelector(ADMETA_SELECTORS.calculateButton);
+    if (primary && !primary.disabled && !primary.id?.startsWith("ihc-")) return primary;
+    const buttons = [...document.querySelectorAll("button, [role='button'], a")];
+    return buttons.find((btn) => {
+      if (!btn || btn.disabled || btn.id?.startsWith("ihc-")) return false;
+      const style = window.getComputedStyle(btn);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+      if (/คำนวณราคาแพลตฟอร์ม/.test(text)) return false;
+      return /(?:คำนวณบิล|คำนวณสเป[กค]|คำนวณราคา|สร้างข้อความ|สรุปสเป[กค]|คำนวณและสร้าง|บันทึกและคำนวณ|^คำนวณ$)/i.test(text);
+    }) || primary || null;
+  }
+
+  function hasLoadedSpecParts() {
+    if ([...document.querySelectorAll(ADMETA_SELECTORS.diyParts)].length > 0) return true;
+    const changeBtns = [...document.querySelectorAll("button, [role='button']")].filter((b) =>
+      /^(?:เปลี่ยน|เพิ่มสินค้า|ทดแทน|อัปเกรด)$/i.test((b.innerText || b.textContent || "").trim())
+    );
+    if (changeBtns.length >= 2) return true;
+    const text = document.body?.innerText || "";
+    if (/ราคาสเป[กค]ตั้งต้น|รายการชิ้นส่วนคอมพิวเตอร์|ปรับแต่งและอัปเกรด|สเป[กค]คอมพิวเตอร์ตั้งต้น|ยอดสุทธิชำระ/i.test(text)) {
+      return true;
+    }
+    const partHits = ["CPU", "Mainboard", "RAM", "VGA", "SSD", "PSU", "Case"].filter((k) =>
+      new RegExp(`\\b${k}\\b`, "i").test(text)
+    );
+    return partHits.length >= 3 && /[฿B]\s*[\d,]+/.test(text);
   }
 
   function hasSelectedSpec() {
     return Boolean(
       findResetButton() ||
-      document.querySelector(ADMETA_SELECTORS.calculateButton) ||
-      (document.body.innerText || "").includes("ปรับแต่งและอัปเกรดชิ้นส่วน")
+      findCalculateButton() ||
+      hasLoadedSpecParts() ||
+      /ปรับแต่งและอัปเกรด|ราคาสเป[กค]ตั้งต้น|สเป[กค]คอมพิวเตอร์ตั้งต้น/i.test(document.body?.innerText || "")
     );
   }
 
@@ -321,10 +406,10 @@
     }, 300);
 
     await waitFor(
-      () => /^\/admin\/spec-builder-v2\/?$/.test(location.pathname) &&
+      () => isCleanSpecBuilderRoot() &&
         findMainBuilderSearchInput() &&
         !findResetButton() &&
-        !document.querySelector(ADMETA_SELECTORS.calculateButton),
+        !findCalculateButton(),
       10000,
       "กดรีเซ็ตแล้วแต่ AdMeta ยังล้างสเป็คเดิมไม่เสร็จ"
     );
@@ -334,7 +419,8 @@
   function setReactInputValue(input, value) {
     if (!input) return;
     input.focus();
-    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set ||
+    const proto = input.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const valueSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set ||
       function (v) { this.value = v; };
     valueSetter.call(input, "");
     input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
@@ -350,10 +436,29 @@
     input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "Enter", code: "Enter", keyCode: 13, which: 13 }));
   }
 
+  function triggerBuilderSearchSubmitIfPresent(input) {
+    if (!input) return;
+    let container = input.parentElement;
+    for (let depth = 0; depth < 3 && container && container !== document.body; depth++) {
+      const btns = [...container.querySelectorAll("button, [role='button']")].filter((btn) => {
+        if (!btn || btn.disabled || btn.id?.startsWith("ihc-")) return false;
+        const style = window.getComputedStyle(btn);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+        const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim();
+        if (/ประวัติ|รีเซ็ต|ล้าง|คำนวณ/.test(text)) return false;
+        return /^(?:ค้นหา|ดึงข้อมูล|ดึงสเป[กค]|ตกลง|โหลด|นำเข้า|search)$/i.test(text);
+      });
+      if (btns.length === 1) {
+        try { btns[0].click(); } catch {}
+        return;
+      }
+      container = container.parentElement;
+    }
+  }
+
   async function calculateDIYMessage(diyUrl) {
     if (isLoginPage()) throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณสเป็คอีกครั้ง");
-    if (location.hostname !== "admeta.me" ||
-        !/^\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/.test(location.pathname)) {
+    if (!isSpecBuilderPage()) {
       throw new Error("กรุณาเปิดหน้า Spec Builder V2 ก่อน");
     }
     if (typeof diyUrl !== "string") throw new Error("ไม่พบลิงก์ DIY");
@@ -365,7 +470,7 @@
     }
     parsedUrl.hostname = "ihavecpu.com";
 
-    const hadExistingSet = !/^\/admin\/spec-builder-v2\/?$/.test(location.pathname) || hasSelectedSpec();
+    const hadExistingSet = !isCleanSpecBuilderRoot() || hasSelectedSpec();
     if (hadExistingSet && !(await resetBuilder())) {
       throw new Error("พบสเป็คค้างอยู่ใน AdMeta แต่ไม่พบปุ่มรีเซ็ต");
     }
@@ -378,18 +483,17 @@
     }, 20000, "ไม่พบช่องค้นหาลิงก์ DIY ใน AdMeta กรุณาเปิดหน้า Spec Builder V2");
 
     setReactInputValue(searchInput, parsedUrl.href);
+    triggerBuilderSearchSubmitIfPresent(searchInput);
     const inputStartedAt = Date.now();
     let retriedInput = false;
 
-    await waitFor(() => {
+    const readyCalcButton = await waitFor(() => {
       if (isLoginPage()) {
         throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณสเป็คอีกครั้ง");
       }
-      const calculateButton = document.querySelector(ADMETA_SELECTORS.calculateButton);
-      const text = document.body.innerText || "";
-      const hasParts = [...document.querySelectorAll(ADMETA_SELECTORS.diyParts)].length > 0;
-      const isReady = calculateButton && !calculateButton.disabled && hasParts &&
-        (text.includes("ราคาสเปกตั้งต้น") || text.includes("รายการชิ้นส่วนคอมพิวเตอร์") || text.includes("ปรับแต่งและอัปเกรด"));
+      const calculateButton = findCalculateButton();
+      const hasParts = hasLoadedSpecParts();
+      const isReady = calculateButton && !calculateButton.disabled && hasParts;
       if (isReady) {
         return calculateButton;
       }
@@ -398,13 +502,13 @@
         if (currentInput) {
           retriedInput = true;
           setReactInputValue(currentInput, parsedUrl.href);
+          triggerBuilderSearchSubmitIfPresent(currentInput);
         }
       }
       return null;
     }, 25000, "AdMeta ไม่โหลดสเป็คจากลิงก์ DIY ภายในเวลาที่กำหนด");
 
-    const calculateButton = document.querySelector(ADMETA_SELECTORS.calculateButton);
-    calculateButton.click();
+    readyCalcButton.click();
 
     const message = await waitFor(
       findCustomerMessage,
@@ -415,7 +519,7 @@
     let needsUrlReset = false;
     try {
       const didReset = await resetBuilder();
-      if (!didReset && (!/^\/admin\/spec-builder-v2\/?$/.test(location.pathname) || hasSelectedSpec())) {
+      if (!didReset && (!isCleanSpecBuilderRoot() || hasSelectedSpec())) {
         needsUrlReset = true;
       }
     } catch {
@@ -425,7 +529,8 @@
     return {
       ok: true,
       text: message,
-      specNumber: message.match(/เลขที่จัดสเปก:\s*([^\s]+)/)?.[1] || "",
+      specNumber: message.match(/(?:เลขที่(?:จัด)?สเป[กค]|รหัส(?:จัด)?สเป[กค])\s*:\s*([^\s]+)/i)?.[1] ||
+                  message.match(/\b(SB-\d{4}-\d+)\b/i)?.[1] || "",
       resetError,
       needsUrlReset
     };
@@ -433,16 +538,14 @@
 
   async function openPromoSetForUpgrade(searchTerm) {
     if (isLoginPage()) throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองเปิดเซ็ตโปรอีกครั้ง");
-    if (location.hostname !== "admeta.me" ||
-        !/^\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/.test(location.pathname)) {
+    if (!isSpecBuilderPage()) {
       throw new Error("กรุณาเปิดหน้า Spec Builder V2 ก่อน");
     }
     if (typeof searchTerm !== "string" || !searchTerm.trim() || searchTerm.length > 160) {
       throw new Error("ไม่พบรหัสเซ็ตโปรสำหรับค้นหาใน AdMeta");
     }
 
-    const hadExistingSet = !/^\/admin\/spec-builder-v2\/?$/.test(location.pathname) ||
-      hasSelectedSpec();
+    const hadExistingSet = !isCleanSpecBuilderRoot() || hasSelectedSpec();
     if (hadExistingSet && !(await resetBuilder())) {
       throw new Error("พบสเป็คค้างอยู่ใน AdMeta แต่ไม่พบปุ่มรีเซ็ต");
     }
@@ -460,6 +563,7 @@
 
     const cleanTerm = searchTerm.trim();
     setReactInputValue(searchInput, cleanTerm);
+    triggerBuilderSearchSubmitIfPresent(searchInput);
     const searchStartedAt = Date.now();
     let retriedSearch = false;
 
@@ -474,6 +578,7 @@
         if (currentInput) {
           retriedSearch = true;
           setReactInputValue(currentInput, cleanTerm);
+          triggerBuilderSearchSubmitIfPresent(currentInput);
         }
       }
       return null;
@@ -482,15 +587,9 @@
 
     const selectedSet = await waitFor(() => {
       const text = document.body.innerText || "";
-      const hasReset = findResetButton() || document.querySelector(ADMETA_SELECTORS.calculateButton);
-      const isLoaded = hasReset && (
-        text.includes("ราคาสเปกตั้งต้น") ||
-        text.includes("ปรับแต่งและอัปเกรด") ||
-        text.includes("รายการสเปกคอมพิวเตอร์") ||
-        text.includes("สเปกคอมพิวเตอร์ตั้งต้น")
-      );
+      const isLoaded = hasSelectedSpec() || hasLoadedSpecParts();
       if (isLoaded) {
-        return text.match(/(?:สเปกคอมพิวเตอร์ตั้งต้น|รายการสเปกคอมพิวเตอร์ตั้งต้น)\s*([\s\S]*?)(?:\n2\n|ปรับแต่งและอัปเกรด)/)?.[1]?.trim() || searchTerm.trim();
+        return text.match(/(?:สเป[กค]คอมพิวเตอร์ตั้งต้น|รายการสเป[กค]คอมพิวเตอร์ตั้งต้น)\s*([\s\S]*?)(?:\n2\n|ปรับแต่งและอัปเกรด)/)?.[1]?.trim() || searchTerm.trim();
       }
       return null;
     }, 20000, "AdMeta ยังโหลดรายการเซ็ตโปรไม่เสร็จ");
@@ -556,8 +655,7 @@
 
   async function searchSpecInBuilder(searchTerm) {
     if (isLoginPage()) throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองค้นหาสเป็คอีกครั้ง");
-    if (location.hostname !== "admeta.me" ||
-        !/^\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/.test(location.pathname)) {
+    if (!isSpecBuilderPage()) {
       throw new Error("กรุณาเปิดหน้า Spec Builder V2 ก่อน");
     }
     if (typeof searchTerm !== "string" || !searchTerm.trim() || searchTerm.length > 300) {
@@ -569,8 +667,7 @@
       return await loadSpecFromHistory(cleanTerm);
     }
 
-    const hadExistingSet = !/^\/admin\/spec-builder-v2\/?$/.test(location.pathname) ||
-      hasSelectedSpec();
+    const hadExistingSet = !isCleanSpecBuilderRoot() || hasSelectedSpec();
     if (hadExistingSet && !(await resetBuilder())) {
       throw new Error("พบสเป็คค้างอยู่ใน AdMeta แต่ไม่พบปุ่มรีเซ็ต");
     }
@@ -586,6 +683,7 @@
       searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {}
     setReactInputValue(searchInput, cleanTerm);
+    triggerBuilderSearchSubmitIfPresent(searchInput);
 
     return { ok: true, searchTerm: cleanTerm };
   }
@@ -712,7 +810,7 @@
   }
 
   function ensurePlatformCalculatorResetButton() {
-    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+    if (!isPlatformCalculatorPage()) {
       document.getElementById("ihc-platform-reset-header-btn")?.remove();
       document.getElementById("ihc-platform-reset-row-btn")?.remove();
       return;
@@ -930,10 +1028,10 @@
   function findPlatformNetPrices() {
     const netLabelEl = [...document.querySelectorAll("*")].find((el) => {
       const txt = (el.innerText || "").trim();
-      return (txt.startsWith("ราคาลงขายสุทธิ") || txt.includes("ราคาลงขายสุทธิ")) && txt.length < 150 && el.children.length <= 2;
+      return /^(?:ราคาลงขายสุทธิ|ราคาขายสุทธิ|ราคาสุทธิแพลตฟอร์ม|ราคาตั้งขายสุทธิ)/i.test(txt) && txt.length < 150 && el.children.length <= 2;
     }) || [...document.querySelectorAll("*")].find((el) => {
       const txt = (el.innerText || "").trim();
-      return txt.includes("ราคาลงขายสุทธิ") && txt.length < 150;
+      return /(?:ราคาลงขายสุทธิ|ราคาขายสุทธิ)/i.test(txt) && txt.length < 150;
     });
 
     if (!netLabelEl) return null;
@@ -1057,7 +1155,7 @@
   }
 
   function ensurePlatformCalculatorCopyFeatures() {
-    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+    if (!isPlatformCalculatorPage()) {
       document.getElementById("ihc-platform-copy-toolbar")?.remove();
       return;
     }
@@ -1238,9 +1336,9 @@
 
   function extractSpecBuilderSummaryPrices() {
     const text = document.body.innerText || "";
-    const baseMatch = text.match(/ราคาสเปกตั้งต้น\s*(?:[:\n\r\t ]*)[฿B]?\s*([\d,]+)/i);
-    const diffMatch = text.match(/ส่วนต่างอัปเกรด\s*(?:[:\n\r\t ]*)[+฿B]?\s*([\d,]+)/i);
-    const totalMatch = text.match(/ยอดสุทธิชำระ\s*(?:[:\n\r\t ]*)[฿B]?\s*([\d,]+)/i);
+    const baseMatch = text.match(/(?:ราคาสเป[กค]ตั้งต้น|ราคาตั้งต้น|ราคาเซ็ตตั้งต้น)\s*(?:[:\n\r\t ]*)[฿B]?\s*([\d,]+)/i);
+    const diffMatch = text.match(/(?:ส่วนต่างอัปเกรด|ส่วนต่าง|ค่าอัปเกรด)\s*(?:[:\n\r\t ]*)[+฿B]?\s*([\d,]+)/i);
+    const totalMatch = text.match(/(?:ยอดสุทธิชำระ|ยอดสุทธิ|ราคารวมสุทธิ|รวมทั้งสิ้น)\s*(?:[:\n\r\t ]*)[฿B]?\s*([\d,]+)/i);
     return {
       basePrice: baseMatch ? baseMatch[1].replace(/,/g, "") : "",
       diffPrice: diffMatch ? diffMatch[1].replace(/,/g, "") : "",
@@ -1252,7 +1350,7 @@
     const badges = [...document.querySelectorAll("*")].filter((el) => {
       if (!el || el.children.length > 2) return false;
       const t = (el.innerText || el.textContent || "").trim();
-      return t === "สเปกคอมพิวเตอร์ตั้งต้น" || t === "รายการสเปกคอมพิวเตอร์ตั้งต้น";
+      return /^(?:สเป[กค]คอมพิวเตอร์ตั้งต้น|รายการสเป[กค]คอมพิวเตอร์ตั้งต้น|สเป[กค]ตั้งต้น|เซ็ตตั้งต้น)$/i.test(t);
     });
 
     for (const badge of badges) {
@@ -1265,16 +1363,16 @@
       if (container) {
         const lines = (container.innerText || "").split("\n")
           .map((l) => l.trim())
-          .filter((l) => l && !/^(สเปกคอมพิวเตอร์ตั้งต้น|รายการสเปกคอมพิวเตอร์ตั้งต้น|ค้นหาและเลือก|เลือกสเปกใหม่|1)$/i.test(l));
+          .filter((l) => l && !/^(สเป[กค]คอมพิวเตอร์ตั้งต้น|รายการสเป[กค]คอมพิวเตอร์ตั้งต้น|สเป[กค]ตั้งต้น|เซ็ตตั้งต้น|ค้นหาและเลือก|เลือกสเป[กค]ใหม่|1)$/i.test(l));
 
-        const titleLine = lines.find((l) => l.length >= 15 && (/^[A-Z0-9]+-[A-Z0-9]+/i.test(l) || l.includes("AMD") || l.includes("INTEL") || l.includes("RTX") || l.includes("GTX")));
+        const titleLine = lines.find((l) => l.length >= 12 && (/^[A-Z0-9]+-[A-Z0-9]+/i.test(l) || /AMD|INTEL|RYZEN|CORE|RTX|GTX|RADEON/i.test(l)));
         if (titleLine) return titleLine;
         if (lines[0] && lines[0].length >= 10) return lines[0];
       }
     }
 
     const fullText = document.body.innerText || "";
-    const match = fullText.match(/(?:สเปกคอมพิวเตอร์ตั้งต้น|รายการสเปกคอมพิวเตอร์ตั้งต้น)\s*[\n\r]+([^\n\r]+)/i);
+    const match = fullText.match(/(?:สเป[กค]คอมพิวเตอร์ตั้งต้น|รายการสเป[กค]คอมพิวเตอร์ตั้งต้น|สเป[กค]ตั้งต้น)\s*[\n\r]+([^\n\r]+)/i);
     if (match && match[1].trim()) {
       return match[1].trim();
     }
@@ -1515,14 +1613,18 @@
   }
 
   function ensureSpecBuilderToPlatformButton() {
-    if (location.hostname !== "admeta.me" || !/^\/admin\/spec-builder-v2(?:\/[^/]+)?\/?$/i.test(location.pathname)) {
+    if (!isSpecBuilderPage()) {
       document.getElementById("ihc-spec-to-platform-calc-btn")?.remove();
       return;
     }
 
     if (document.getElementById("ihc-spec-to-platform-calc-btn")) return;
 
-    const targetActionBtn = findPlatformButton(/คำนวณบิล/) || findPlatformButton(/พิมพ์\s*A6/);
+    const targetActionBtn =
+      findPlatformButton(/คำนวณบิล/) ||
+      findPlatformButton(/พิมพ์\s*A6/) ||
+      findCalculateButton() ||
+      findResetButton();
     if (!targetActionBtn || !targetActionBtn.parentElement) return;
 
     const btn = document.createElement("button");
@@ -1679,7 +1781,7 @@
     if (isLoginPage()) {
       throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
     }
-    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+    if (!isPlatformCalculatorPage()) {
       throw new Error("กรุณาเปิดหน้าคำนวณราคาแพลตฟอร์มก่อน");
     }
 
@@ -1687,7 +1789,7 @@
       if (isLoginPage()) {
         throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
       }
-      return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต/i);
+      return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้าทั่วไป|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต|เพิ่มเซ็ต/i);
     }, 15000, "ไม่พบปุ่มเพิ่มสินค้าบนหน้าคำนวณราคาแพลตฟอร์ม");
 
     if (resetFirst) {
@@ -1702,7 +1804,7 @@
       showStatus(`กำลังเพิ่มคอมเซ็ต "${specCode}"...`, false);
 
       const beforeSet = new Set(findPlatformSearchRowInputs());
-      const comsetBtn = findPlatformButton(/เพิ่มคอมเซ็ต/);
+      const comsetBtn = findPlatformButton(/เพิ่มคอมเซ็ต|เพิ่มเซ็ต|คอมเซ็ต/i);
       if (!comsetBtn) throw new Error("ไม่พบปุ่ม 'เพิ่มคอมเซ็ต'");
       comsetBtn.click();
 
@@ -1737,7 +1839,7 @@
         showStatus(`กำลังเพิ่มรายการสินค้า (${i + 1}/${upgradedItems.length}): ${item.title.substring(0, 32)}...`, false);
 
         const beforeSet = new Set(findPlatformSearchRowInputs());
-        const normalBtn = findPlatformButton(/เพิ่มสินค้าปกติ/);
+        const normalBtn = findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้าทั่วไป|เพิ่มรายการ|เพิ่มสินค้า(?!\s*DIY)/i);
         if (!normalBtn) throw new Error("ไม่พบปุ่ม 'เพิ่มสินค้าปกติ'");
         normalBtn.click();
 
@@ -1811,7 +1913,7 @@
     if (isLoginPage()) {
       throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
     }
-    if (location.hostname !== "admeta.me" || !/^\/admin\/platform\/calculator/i.test(location.pathname)) {
+    if (!isPlatformCalculatorPage()) {
       throw new Error("กรุณาเปิดหน้าคำนวณราคาแพลตฟอร์มก่อน");
     }
 
@@ -1819,7 +1921,7 @@
       if (isLoginPage()) {
         throw new Error("กรุณาเข้าสู่ระบบ AdMeta ก่อน แล้วลองคำนวณราคาสินค้าแพลตฟอร์มอีกครั้ง");
       }
-      return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต/i);
+      return findPlatformButton(/เพิ่มสินค้าปกติ|เพิ่มสินค้าทั่วไป|เพิ่มสินค้า\s*DIY|เพิ่มคอมเซ็ต|เพิ่มเซ็ต/i);
     }, 15000, "ไม่พบปุ่มเพิ่มสินค้าบนหน้าคำนวณราคาแพลตฟอร์ม");
 
     if (resetFirst) {
@@ -1834,7 +1936,7 @@
       let modalInput = findPlatformDIYModalInput();
       if (!modalInput) {
         const beforeInputs = new Set([...document.querySelectorAll("input")].filter(isVisibleInput));
-        const diyBtn = findPlatformButton(/เพิ่มสินค้า\s*DIY/i);
+        const diyBtn = findPlatformButton(/เพิ่มสินค้า\s*DIY|ดึงสเป[กค]\s*DIY|วางลิงก์\s*DIY/i);
         if (!diyBtn) throw new Error("ไม่พบปุ่ม 'เพิ่มสินค้า DIY'");
         diyBtn.click();
         modalInput = await waitFor(
@@ -1845,7 +1947,7 @@
       }
       setPlatformInputValue(modalInput, diyUrl, false);
       setTimeout(() => {
-        const confirmBtn = findPlatformButton(/ยืนยันดึงข้อมูล/);
+        const confirmBtn = findPlatformButton(/ยืนยันดึงข้อมูล|ดึงข้อมูล|ยืนยัน|ตกลง|นำเข้า/i);
         if (confirmBtn) confirmBtn.click();
       }, 250);
       return { ok: true, kind: "diy", diyUrl };
@@ -1855,7 +1957,9 @@
     if (!cleanTitle) throw new Error("ไม่พบชื่อรายการสินค้า");
 
     const isComset = kind === "comset";
-    const buttonRegex = isComset ? /เพิ่มคอมเซ็ต/ : /เพิ่มสินค้าปกติ/;
+    const buttonRegex = isComset
+      ? /เพิ่มคอมเซ็ต|เพิ่มเซ็ต|คอมเซ็ต/i
+      : /เพิ่มสินค้าปกติ|เพิ่มสินค้าทั่วไป|เพิ่มรายการ|เพิ่มสินค้า(?!\s*DIY)/i;
 
     const existingRowInputs = findPlatformSearchRowInputs();
     let targetInput = existingRowInputs.find((inp) => {

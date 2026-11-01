@@ -7,10 +7,10 @@ const releaseNotesVerEl = document.getElementById("release-notes-ver");
 const releaseNotesItemsEl = document.getElementById("release-notes-items");
 
 const DEFAULT_RELEASE_NOTES = [
+  "+ รองรับหน้าเว็บ AdMeta รูปแบบใหม่ทั้งหมด (Spec Builder V2, คำนวณ DIY, เซ็ตโปร, ประวัติ และคำนวณราคาแพลตฟอร์ม)",
+  "+ แก้ไขปัญหา 'ไม่พบช่องแนบรูปของช่องพิมพ์แชต Zaapi' ด้วยระบบค้นหาช่องแนบรูปอัจฉริยะ",
   "+ เคส (CASE) ไม่ต้องบวกค่าส่ง 50 บาท แม้ราคาต่ำกว่า 5,000 บาท",
-  "+ อัปเดตอัตโนมัติเบื้องหลังเต็มรูปแบบ (Silent Background Auto-Update)",
-  "+ ปิดกล่องแจ้งเตือนอัปเดตและ Badge บนหน้าเว็บ ไม่ต้องกดอัปเดตเอง",
-  "+ แก้ไข Error Extension context invalidated บน Zaapi"
+  "+ อัปเดตอัตโนมัติเบื้องหลังเต็มรูปแบบ (Silent Background Auto-Update)"
 ];
 
 const NOTE_PALETTE = [
