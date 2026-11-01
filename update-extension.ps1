@@ -65,8 +65,9 @@ function Remove-ObsoleteExtensionFiles($folderPath) {
   try {
     if (-not (Safe-TestPath $folderPath)) { return }
     $checkPrefix = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)"
+    $dangerPrefix = "$([char]0x0E2D)$([char]0x0E31)$([char]0x0E19)$([char]0x0E15)$([char]0x0E23)$([char]0x0E32)$([char]0x0E22)"
     Get-ChildItem -LiteralPath $folderPath -Force -ErrorAction SilentlyContinue | Where-Object {
-      $_.Name -match '^(check-machines\.ps1|publish-update\.ps1|.*001.*|.*GitHub.*\.bat)$' -or $_.Name.StartsWith($checkPrefix)
+      $_.Name -match '^(check-machines\.ps1|publish-update\.ps1|.*001.*|.*GitHub.*\.bat)$' -or $_.Name.StartsWith($checkPrefix) -or $_.Name.StartsWith($dangerPrefix)
     } | ForEach-Object {
       Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -94,8 +95,9 @@ function Compare-SemVer($v1, $v2) {
 function Get-CleanExtensionItems($sourceFolder) {
   $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|admin-dashboard\.html|.*001.*|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip|GEMINI\.md|\.agents|monitor)$'
   $checkAdminPrefix = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)"
+  $dangerPrefix = "$([char]0x0E2D)$([char]0x0E31)$([char]0x0E19)$([char]0x0E15)$([char]0x0E23)$([char]0x0E32)$([char]0x0E22)"
   return Get-ChildItem -LiteralPath $sourceFolder -Force | Where-Object {
-    $_.Name -notmatch $excludedPattern -and -not $_.Name.StartsWith($checkAdminPrefix)
+    $_.Name -notmatch $excludedPattern -and -not $_.Name.StartsWith($checkAdminPrefix) -and -not $_.Name.StartsWith($dangerPrefix)
   }
 }
 
@@ -330,6 +332,9 @@ if ($isMasterRepo -and -not $Silent) {
       } elseif ($existingRemote.Trim() -ne $remoteUrl) {
         git -c safe.directory=* remote set-url origin $remoteUrl
       }
+      $dangerDirName = "$([char]0x0E2D)$([char]0x0E31)$([char]0x0E19)$([char]0x0E15)$([char]0x0E23)$([char]0x0E32)$([char]0x0E22)"
+      $checkBatName = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)$([char]0x0E04)$([char]0x0E08)$([char]0x0E33)$([char]0x0E19)$([char]0x0E27)$([char]0x0E19)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E41)$([char]0x0E2D)$([char]0x0E14)$([char]0x0E21)$([char]0x0E34)$([char]0x0E19).bat"
+      git -c safe.directory=* rm -r --cached --ignore-unmatch $dangerDirName "admin-dashboard.html" $checkBatName 2>$null | Out-Null
       git -c safe.directory=* add -A
       $status = git -c safe.directory=* status --porcelain
       if ($status) {

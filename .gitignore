@@ -2,6 +2,8 @@ publish-update.ps1
 *GitHub*.bat
 check-machines.ps1
 *เช็กจำนวนเครื่อง*.bat
+*เช็คจำนวนเครื่อง*.bat
+admin-dashboard.html
 device-info.json
 machines-cache.json
 README-*.txt
@@ -9,6 +11,8 @@ TEST_CHECKLIST.md
 *.zip
 โปรเจ็คลับ*
 *โปรเจ็คลับ*
+อันตราย/
+*อันตราย*
 GEMINI.md
 .agents/
 monitor/

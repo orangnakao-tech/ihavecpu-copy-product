@@ -138,8 +138,9 @@ foreach ($root in $commonRoots) {
 
 $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|admin-dashboard\.html|.*001.*|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip|GEMINI\.md|\.agents|monitor)$'
 $checkAdminPrefix = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)"
+$dangerPrefix = "$([char]0x0E2D)$([char]0x0E31)$([char]0x0E19)$([char]0x0E15)$([char]0x0E23)$([char]0x0E32)$([char]0x0E22)"
 $itemsToInstall = Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object {
-  $_.Name -notmatch $excludedPattern -and -not $_.Name.StartsWith($checkAdminPrefix)
+  $_.Name -notmatch $excludedPattern -and -not $_.Name.StartsWith($checkAdminPrefix) -and -not $_.Name.StartsWith($dangerPrefix)
 }
 
 $devInfoJson = @{
