@@ -1,5 +1,5 @@
 (() => {
-  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.23";
+  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.24";
   if (window.__ihavecpuCopyInstalled === currentExtVer && window.__ihavecpuCopyRuntimeAlive?.()) return;
   window.__ihavecpuCopyInstalled = currentExtVer;
   window.__ihavecpuCopyRuntimeAlive = () => Boolean(chrome?.runtime?.id);
@@ -1118,6 +1118,15 @@
     if (message?.type === "SHOW_UPDATE_NOTICE") {
       showUpdateNotice(message.status);
     }
+    if (message?.type === "TRIGGER_PROTOCOL_UPDATER") {
+      try {
+        const iframe = document.createElement("iframe");
+        iframe.style.display = "none";
+        iframe.src = "ihavecpu-updater://update";
+        document.body.appendChild(iframe);
+        setTimeout(() => iframe.remove(), 4000);
+      } catch {}
+    }
   });
 
   function isVisibleEditor(el) {
@@ -1359,12 +1368,15 @@
             const val = JSON.parse(localStorage.getItem(key));
             const name = val?.name || val?.user?.name || val?.displayName || val?.fullName || val?.username;
             if (name && typeof name === "string" && name.trim().length >= 2 && !name.includes("@")) {
-              chrome.runtime.sendMessage({
-                type: "SYNC_STAFF_INFO",
-                staff: name.trim(),
-                branch: ""
-              }).catch(() => {});
-              return;
+              const normName = name.replace(/\s+/g, " ").trim();
+              if (!/(วันหยุด|ประกาศ|บัญชี|การเงิน|จัดการ|ขนส่ง|คำสั่งซื้อ|หน้าหลัก|ตั้งค่า)/i.test(normName)) {
+                chrome.runtime.sendMessage({
+                  type: "SYNC_STAFF_INFO",
+                  staff: normName,
+                  branch: ""
+                }).catch(() => {});
+                return;
+              }
             }
           } catch {}
         }

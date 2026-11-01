@@ -74,7 +74,7 @@
         <div class="text-left lg:text-right mr-2">
           <div class="text-xs text-slate-400">เวอร์ชันมาตรฐานล่าสุด</div>
           <div class="flex items-center gap-2">
-            <span id="target-version-badge" class="mono text-lg font-bold text-emerald-400">v2.5.22</span>
+            <span id="target-version-badge" class="mono text-lg font-bold text-emerald-400">v2.5.24</span>
             <span id="last-sync-text" class="text-xs text-slate-500 mono">ซิงก์ล่าสุด: กำลังโหลด...</span>
           </div>
         </div>
@@ -155,6 +155,20 @@
       </div>
     </div>
 
+    <section class="glass rounded-2xl p-5 md:p-6 border border-red-500/25">
+      <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div class="flex-1">
+          <h2 class="text-base md:text-lg font-bold text-white">📢 แจ้งเตือนอัปเดตส่วนขยาย</h2>
+          <p class="text-xs text-slate-400 mt-1">ส่งข้อความไปยังเครื่องที่ระบุ หรือส่งทุกเครื่องที่ติดตั้งส่วนขยายได้เมื่อกดปุ่มเท่านั้น</p>
+          <label for="admin-notice-message" class="block text-xs text-slate-300 mt-3 mb-1">ข้อความแจ้งเตือน</label>
+          <textarea id="admin-notice-message" maxlength="240" rows="2" placeholder="มีอัปเดตส่วนขยาย กรุณากดรีโหลดเพื่ออัปเดต" class="w-full bg-slate-900/90 border border-slate-700 focus:border-red-500 rounded-xl px-4 py-2 text-sm text-white placeholder-slate-500 outline-none transition"></textarea>
+        </div>
+        <button id="btn-send-update-notice-all" type="button" class="px-4 py-2.5 rounded-xl bg-red-600/80 hover:bg-red-500 text-white border border-red-400/40 text-xs md:text-sm font-semibold transition cursor-pointer whitespace-nowrap">
+          📣 ส่งแจ้งเตือนทุกเครื่อง
+        </button>
+      </div>
+    </section>
+
     <!-- Actionable Recommendations Section for Outdated Machines -->
     <div id="recommendations-panel" class="glass rounded-2xl p-5 md:p-6 border border-amber-500/30">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-800">
@@ -177,6 +191,63 @@
 
       <div id="outdated-cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 mt-4">
         <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Reinstall & Legacy Version Support Panel -->
+    <div class="glass rounded-2xl p-5 md:p-6 border border-cyan-500/30">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-xl shrink-0">
+            🛠️
+          </div>
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="text-base md:text-lg font-bold text-white">
+                แนวทางรองรับเครื่องที่เคยลงเวอร์ชันเก่า หรือ ลบส่วนขยายแล้วลงใหม่
+              </h2>
+              <span id="merged-duplicates-badge" class="px-2.5 py-0.5 text-xs rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 mono">
+                ยุบรวมข้อมูลซ้ำอัตโนมัติ 0 รายการ
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">
+              ระบบจัดการเครื่องที่มีชื่อซ้ำ (เกิดจากการลบลงใหม่หรือโหลดคนละโฟลเดอร์) โดยเลือกใช้ข้อมูลและเวอร์ชันล่าสุดให้อัตโนมัติ พร้อมแนวทางแก้ไขสำหรับแต่ละกรณี
+            </p>
+          </div>
+        </div>
+        <button id="btn-copy-reinstall-guide" type="button" class="px-4 py-2.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs md:text-sm font-semibold transition flex items-center gap-2 cursor-pointer whitespace-nowrap self-start lg:self-center">
+          <span>📋</span>
+          <span>คัดลอกคู่มือแก้ปัญหาสำหรับคนลบลงใหม่ / เวอร์ชันเก่า</span>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-4">
+        <div class="rounded-xl p-4 bg-slate-900/70 border border-slate-800">
+          <div class="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+            <span>🔄 1. กรณีลบส่วนขยายแล้วลงใหม่ (Reinstall)</span>
+          </div>
+          <p class="text-xs text-slate-300 mt-1.5 leading-relaxed">
+            หากแอดมินลบส่วนขยายออกจาก Chrome แล้วลงใหม่ ระบบจะกู้คืน <b>ชื่อแอดมิน รหัสเครื่อง และยอดคลิกสะสม</b> จากบัญชี Chrome Sync ให้อัตโนมัติ และหน้าแดชบอร์ดจะยุบรวมไอดีเก่าเข้ากับไอดีใหม่โดยยึดข้อมูลล่าสุดทันที
+          </p>
+        </div>
+
+        <div class="rounded-xl p-4 bg-slate-900/70 border border-slate-800">
+          <div class="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+            <span>📂 2. กรณีเคยลงเวอร์ชันเก่าไว้ที่ Downloads / Desktop</span>
+          </div>
+          <p class="text-xs text-slate-300 mt-1.5 leading-relaxed">
+            บางเครื่องเคยกด Load unpacked จากโฟลเดอร์เก่าใน Downloads ทำให้มีหลายโฟลเดอร์ ตอนนี้ไฟล์ <b>ติดตั้งส่วนขยาย.bat</b> และ <b>อัปเดตส่วนขยาย.bat</b> จะสแกนค้นหาและอัปเดตทับ <b>ทุกโฟลเดอร์ในเครื่อง</b> ให้อัตโนมัติในคลิกเดียว
+          </p>
+        </div>
+
+        <div class="rounded-xl p-4 bg-slate-900/70 border border-slate-800">
+          <div class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+            <span>⚡ 3. กรณีเครื่องขึ้นรหัส PC_... (ไม่ได้ผ่านตัวติดตั้ง)</span>
+          </div>
+          <p class="text-xs text-slate-300 mt-1.5 leading-relaxed">
+            เครื่องที่แสดงรหัส <code class="mono text-amber-200">PC_XXXX</code> คือเครื่องที่ลากโฟลเดอร์เข้า Chrome เองโดยไม่ได้รันไฟล์ติดตั้ง แนะนำให้กดรัน <b>อัปเดตส่วนขยาย.bat</b> หรือ <b>ติดตั้งส่วนขยาย.bat</b> 1 ครั้งเพื่อผูกชื่อเครื่อง PC จริงและเปิดระบบ Auto-Update ถาวร
+          </p>
+        </div>
       </div>
     </div>
 
@@ -248,45 +319,36 @@
   <script>
     // Initial embedded cache from machines-cache.json so the page renders immediately even before network completes
     const INITIAL_CACHE = {
-      "PC_19EC9F8T": { "id": "PC_19EC9F8T", "pc": "", "user": "", "staff": "พีรพล ปั้นกันอินทร์", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793255218153, "totalClicks": 171, "todayClicks": 12, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793255215151, "actions": { "คัดลอกสินค้าพร้อมรูป": 90, "คำนวณสเป็คใน AdMeta": 1, "ค้นหาสเป็คใน AdMeta": 23, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 29, "เปิดคำนวณราคาแพลตฟอร์ม": 15, "เปิดเซ็ตโปรใน AdMeta": 11, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 2 } },
-      "DESKTOP-0914487_TEAY ADMIN": { "id": "DESKTOP-0914487_TEAY ADMIN", "pc": "DESKTOP-0914487", "user": "TEAY ADMIN", "staff": "เฉลิมพงษ์ ชำนิกล้า", "branch": "สำนักงานใหญ่", "ver": "2.5.19", "ts": 1792938524568, "totalClicks": 9, "todayClicks": 9, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1792934945152, "actions": { "คัดลอกสินค้าพร้อมรูป": 5, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1, "เปิดเซ็ตโปรใน AdMeta": 3 } },
-      "PC_8BG0M98G": { "id": "PC_8BG0M98G", "pc": "", "user": "", "staff": "นครินทร์ บุญอุปถัมภ์", "branch": "สำนักงานใหญ่", "ver": "2.5.8", "ts": 1792852027320 },
-      "PC_A7YVDU2I": { "id": "PC_A7YVDU2I", "pc": "", "user": "", "staff": "ยศภัทร ศรีชู", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793082249746, "totalClicks": 118, "todayClicks": 0, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793037425303, "actions": { "คัดลอกสินค้าพร้อมรูป": 68, "คำนวณสเป็คใน AdMeta": 1, "ค้นหาสเป็คใน AdMeta": 34, "เปิดเซ็ตโปรใน AdMeta": 13, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 2 } },
-      "PC_F2HP8LUE": { "id": "PC_F2HP8LUE", "pc": "", "user": "", "staff": "ยศภัทร ศรีชู", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793086294901, "totalClicks": 118, "todayClicks": 5, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793084498389, "actions": { "คัดลอกสินค้าพร้อมรูป": 4, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1 } },
-      "PC_FKS6VWQ1": { "id": "PC_FKS6VWQ1", "pc": "", "user": "", "staff": "เฉลิมพงษ์ ชำนิกล้า", "branch": "สำนักงานใหญ่", "ver": "2.5.8", "ts": 1792852004236 },
-      "AUNG-PAO_iHC": { "id": "AUNG-PAO_iHC", "pc": "AUNG-PAO", "user": "iHC", "staff": "วันหยุด และ ประกาศ", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793262458089, "totalClicks": 83, "todayClicks": 3, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793260573828, "actions": { "คัดลอกสินค้าพร้อมรูป": 52, "ค้นหาสเป็คใน AdMeta": 4, "เปิดเซ็ตโปรใน AdMeta": 23, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 4 } },
-      "DESKTOP-SM4QN4U_iHC": { "id": "DESKTOP-SM4QN4U_iHC", "pc": "DESKTOP-SM4QN4U", "user": "iHC", "staff": "ธนกฤต โค้วสว่าง", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793258539659, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793258539659, "actions": {} },
-      "DESKTOP-1R8VGK8_IHCC TEST": { "id": "DESKTOP-1R8VGK8_IHCC TEST", "pc": "DESKTOP-1R8VGK8", "user": "IHCC TEST", "staff": "จักรพงศ์ บุตรพรหม", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793482356513, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793482356513, "actions": {} },
-      "PC_6FEG7MTU": { "id": "PC_6FEG7MTU", "pc": "", "user": "", "staff": "ดนุสรณ์ ตาลเพชร", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793234978764, "totalClicks": 41, "todayClicks": 0, "lastAction": "คีย์ลัด copy-product", "lastActionTs": 1793098436477, "actions": { "คีย์ลัด copy-product": 38, "ค้นหาสเป็คใน AdMeta": 3 } },
-      "DESKTOP-MU61BVS_ee": { "id": "DESKTOP-MU61BVS_ee", "pc": "DESKTOP-MU61BVS", "user": "ee", "staff": "ดนุสรณ์ ตาลเพชร", "branch": "สำนักงานใหญ่", "ver": "2.5.21", "ts": 1793482405905, "totalClicks": 3, "todayClicks": 0, "lastAction": "คีย์ลัด copy-product", "lastActionTs": 1793259897854, "actions": { "คัดลอกสินค้าพร้อมรูป": 2, "คีย์ลัด copy-product": 1 } },
-      "DESKTOP-D697JD3_comna": { "id": "DESKTOP-D697JD3_comna", "pc": "DESKTOP-D697JD3", "user": "comna", "staff": "นครินทร์ บุญอุปถัมภ์", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1792933620372, "totalClicks": 40, "todayClicks": 40, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1792933448842, "actions": { "คัดลอกสินค้าพร้อมรูป": 40 } },
-      "ORANGE_Administrator": { "id": "ORANGE_Administrator", "pc": "ORANGE", "user": "Administrator", "staff": "พีรพล ปั้นกันอินทร์", "branch": "สำนักงานใหญ่", "ver": "2.5.23", "ts": 1793505000000, "totalClicks": 23, "todayClicks": 23, "lastAction": "ค้นหาสเป็คใน AdMeta", "lastActionTs": 1793504660000, "actions": { "คัดลอกสินค้าพร้อมรูป": 17, "ค้นหาสเป็คใน AdMeta": 2, "เปิดเซ็ตโปรใน AdMeta": 4 } },
-      "PC_886KFSNW": { "id": "PC_886KFSNW", "pc": "", "user": "", "staff": "ศุภชัย ลุนละลาด", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793482393183, "totalClicks": 13, "todayClicks": 0, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793338948835, "actions": { "คัดลอกสินค้าพร้อมรูป": 8, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 5 } },
-      "PC_2YSPPCM9": { "id": "PC_2YSPPCM9", "pc": "", "user": "", "staff": "พีรพล ปั้นกันอินทร์", "branch": "สำนักงานใหญ่", "ver": "2.5.7", "ts": 1792846333841 },
-      "PC_PQXRNRCR": { "id": "PC_PQXRNRCR", "pc": "", "user": "", "staff": "เฉลิมพงษ์ ชำนิกล้า", "branch": "สำนักงานใหญ่", "ver": "2.5.16", "ts": 1792929383518, "totalClicks": 1, "todayClicks": 1, "lastAction": "เปิดเซ็ตโปรใน AdMeta", "lastActionTs": 1792929380503, "actions": { "เปิดเซ็ตโปรใน AdMeta": 1 } },
+      "ORANGE_Administrator": { "id": "ORANGE_Administrator", "pc": "ORANGE", "user": "Administrator", "staff": "พีรพล ปั้นกันอินทร์", "branch": "สำนักงานใหญ่", "ver": "2.5.24", "ts": 1793505000000, "totalClicks": 171, "todayClicks": 23, "lastAction": "ค้นหาสเป็คใน AdMeta", "lastActionTs": 1793504660000, "actions": { "คัดลอกสินค้าพร้อมรูป": 90, "คำนวณสเป็คใน AdMeta": 1, "ค้นหาสเป็คใน AdMeta": 23, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 29, "เปิดคำนวณราคาแพลตฟอร์ม": 15, "เปิดเซ็ตโปรใน AdMeta": 11, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 2 }, "mergedIds": ["ORANGE_Administrator", "PC_19EC9F8T", "PC_2YSPPCM9"] },
+      "DESKTOP-MU61BVS_ee": { "id": "DESKTOP-MU61BVS_ee", "pc": "DESKTOP-MU61BVS", "user": "ee", "staff": "ดนุสรณ์ ตาลเพชร", "branch": "สำนักงานใหญ่", "ver": "2.5.21", "ts": 1793482405905, "totalClicks": 41, "todayClicks": 0, "lastAction": "คีย์ลัด copy-product", "lastActionTs": 1793259897854, "actions": { "คัดลอกสินค้าพร้อมรูป": 2, "คีย์ลัด copy-product": 38, "ค้นหาสเป็คใน AdMeta": 3 }, "mergedIds": ["DESKTOP-MU61BVS_ee", "PC_6FEG7MTU"] },
       "AUN_iHC": { "id": "AUN_iHC", "pc": "AUN", "user": "iHC", "staff": "อรรณพ รองสำลี", "branch": "สำนักงานใหญ่", "ver": "2.5.21", "ts": 1793482404213, "totalClicks": 3, "todayClicks": 0, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793259262890, "actions": { "คัดลอกสินค้าพร้อมรูป": 2, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1 } },
+      "PC_886KFSNW": { "id": "PC_886KFSNW", "pc": "", "user": "", "staff": "ศุภชัย ลุนละลาด", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793482393183, "totalClicks": 13, "todayClicks": 0, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793338948835, "actions": { "คัดลอกสินค้าพร้อมรูป": 8, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 5 } },
+      "DESKTOP-1R8VGK8_IHCC TEST": { "id": "DESKTOP-1R8VGK8_IHCC TEST", "pc": "DESKTOP-1R8VGK8", "user": "IHCC TEST", "staff": "จักรพงศ์ บุตรพรหม", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793482356513, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793482356513, "actions": {} },
+      "AUNG-PAO_iHC": { "id": "AUNG-PAO_iHC", "pc": "AUNG-PAO", "user": "iHC", "staff": "", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793262458089, "totalClicks": 83, "todayClicks": 3, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793260573828, "actions": { "คัดลอกสินค้าพร้อมรูป": 52, "ค้นหาสเป็คใน AdMeta": 4, "เปิดเซ็ตโปรใน AdMeta": 23, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 4 } },
+      "DESKTOP-SM4QN4U_iHC": { "id": "DESKTOP-SM4QN4U_iHC", "pc": "DESKTOP-SM4QN4U", "user": "iHC", "staff": "ธนกฤต โค้วสว่าง", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793258539659, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793258539659, "actions": {} },
+      "PC_NVFXXK1T": { "id": "PC_NVFXXK1T", "pc": "", "user": "", "staff": "", "branch": "", "ver": "2.5.20", "ts": 1793255171320, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793255171320, "actions": {} },
       "DESKTOP-3KEM6M3_Jame": { "id": "DESKTOP-3KEM6M3_Jame", "pc": "DESKTOP-3KEM6M3", "user": "Jame", "staff": "ภูมินทร์ พินดวง", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1793086320303, "totalClicks": 34, "todayClicks": 3, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793084931455, "actions": { "คัดลอกสินค้าพร้อมรูป": 27, "คำนวณสเป็คใน AdMeta": 1, "เปิดเซ็ตโปรใน AdMeta": 6 } },
-      "PC_NVFXXK1T": { "id": "PC_NVFXXK1T", "pc": "", "user": "", "staff": "", "branch": "", "ver": "2.5.20", "ts": 1793255171320, "totalClicks": 0, "todayClicks": 0, "lastAction": "เปิดส่วนขยายพร้อมใช้งาน", "lastActionTs": 1793255171320, "actions": {} }
+      "PC_F2HP8LUE": { "id": "PC_F2HP8LUE", "pc": "", "user": "", "staff": "ยศภัทร ศรีชู", "branch": "สำนักงานใหญ่", "ver": "2.5.20", "ts": 1793086294901, "totalClicks": 118, "todayClicks": 5, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1793084498389, "actions": { "คัดลอกสินค้าพร้อมรูป": 68, "คำนวณสเป็คใน AdMeta": 1, "ค้นหาสเป็คใน AdMeta": 34, "เปิดเซ็ตโปรใน AdMeta": 13, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1, "ใส่ราคาและลิงก์ DIY ใน Zaapi": 2 }, "mergedIds": ["PC_F2HP8LUE", "PC_A7YVDU2I"] },
+      "DESKTOP-0914487_TEAY ADMIN": { "id": "DESKTOP-0914487_TEAY ADMIN", "pc": "DESKTOP-0914487", "user": "TEAY ADMIN", "staff": "เฉลิมพงษ์ ชำนิกล้า", "branch": "สำนักงานใหญ่", "ver": "2.5.19", "ts": 1792938524568, "totalClicks": 9, "todayClicks": 9, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1792934945152, "actions": { "คัดลอกสินค้าพร้อมรูป": 5, "ส่งสเปกไปคำนวณราคาแพลตฟอร์ม": 1, "เปิดเซ็ตโปรใน AdMeta": 3 }, "mergedIds": ["DESKTOP-0914487_TEAY ADMIN", "PC_PQXRNRCR", "PC_FKS6VWQ1"] },
+      "DESKTOP-D697JD3_comna": { "id": "DESKTOP-D697JD3_comna", "pc": "DESKTOP-D697JD3", "user": "comna", "staff": "นครินทร์ บุญอุปถัมภ์", "branch": "สำนักงานใหญ่", "ver": "2.5.10", "ts": 1792933620372, "totalClicks": 40, "todayClicks": 40, "lastAction": "คัดลอกสินค้าพร้อมรูป", "lastActionTs": 1792933448842, "actions": { "คัดลอกสินค้าพร้อมรูป": 40 }, "mergedIds": ["DESKTOP-D697JD3_comna", "PC_8BG0M98G"] }
     };
 
     const NTFY_URL = "https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053/json?poll=1&since=all";
     const GITHUB_MANIFEST_URL = "https://raw.githubusercontent.com/orangnakao-tech/ihavecpu-copy-product/main/manifest.json";
 
-    let targetVersion = "2.5.23";
+    let targetVersion = "2.5.24";
     let machinesMap = JSON.parse(JSON.stringify(INITIAL_CACHE));
     let currentFilter = "all";
     let searchQuery = "";
 
-    // Load saved localStorage cache if newer
-    try {
-      const saved = localStorage.getItem("ihc_admin_machines_v1");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        for (const [id, data] of Object.entries(parsed)) {
-          mergeMachineRecord(id, data);
-        }
+    function sanitizeStaffName(rawName) {
+      const clean = String(rawName || "").replace(/\s+/g, " ").trim();
+      if (!clean) return "";
+      if (/^(?:หน้าหลัก|การขาย|จัดสเปค|SpecBuddy|คำนวณเปลี่ยนสินค้า|ใบเสนอราคา|คำนวณราคาแพลตฟอร์ม|จัดการคำสั่งซื้อ|รายการคำสั่งซื้อ|Inventory|การจัดส่ง|การจัดการขนส่ง|คลังไฟล์แพลตฟอร์ม|จัดการพัสดุ|วันหยุด\s*และ\s*ประกาศ|จัดการสินค้า|บัญชี\s*และ\s*การเงิน|ใบแจ้งหนี้|แจ้งโอน|Onsite\s*Service|RMA|เจ้าหน้าที่แอดมิน|สำนักงานใหญ่|Admin|iHAVECPU)$/i.test(clean)) {
+        return "";
       }
-    } catch {}
+      return clean;
+    }
 
     function compareSemVer(v1, v2) {
       const p1 = String(v1 || "0").replace(/^v/i, "").split(".").map(n => parseInt(n, 10) || 0);
@@ -301,26 +363,151 @@
       return 0;
     }
 
+    function combineActionsMap(aActions, bActions) {
+      const out = { ...(aActions || {}) };
+      if (bActions && typeof bActions === "object") {
+        for (const [k, v] of Object.entries(bActions)) {
+          out[k] = Math.max(Number(out[k]) || 0, Number(v) || 0);
+        }
+      }
+      return out;
+    }
+
+    function combineTwoRecords(recA, recB) {
+      const a = recA || {};
+      const b = recB || {};
+      const aTs = Number(a.ts) || 0;
+      const bTs = Number(b.ts) || 0;
+      const newer = bTs >= aTs ? b : a;
+      const older = newer === b ? a : b;
+
+      const highestVer = compareSemVer(a.ver, b.ver) >= 0 ? (a.ver || b.ver) : (b.ver || a.ver);
+      const cleanStaffNewer = sanitizeStaffName(newer.staff);
+      const cleanStaffOlder = sanitizeStaffName(older.staff);
+
+      // Prefer canonical COMPUTERNAME_USERNAME id over random PC_XXXX id
+      const aHasPc = Boolean((a.pc || "").trim()) || !String(a.id || "").startsWith("PC_");
+      const bHasPc = Boolean((b.pc || "").trim()) || !String(b.id || "").startsWith("PC_");
+      let primaryId = newer.id || older.id;
+      if (aHasPc && !bHasPc) primaryId = a.id;
+      else if (bHasPc && !aHasPc) primaryId = b.id;
+
+      const mergedIds = Array.from(new Set([
+        ...(Array.isArray(a.mergedIds) ? a.mergedIds : (a.id ? [a.id] : [])),
+        ...(Array.isArray(b.mergedIds) ? b.mergedIds : (b.id ? [b.id] : [])),
+        ...(a.legacyId ? [a.legacyId] : []),
+        ...(b.legacyId ? [b.legacyId] : [])
+      ].filter(Boolean)));
+
+      const combinedActions = combineActionsMap(older.actions, newer.actions);
+      const sumActionsClicks = Object.values(combinedActions).reduce((sum, n) => sum + (Number(n) || 0), 0);
+      const maxTotalClicks = Math.max(Number(a.totalClicks) || 0, Number(b.totalClicks) || 0, sumActionsClicks);
+
+      return {
+        ...older,
+        ...newer,
+        id: primaryId,
+        pc: newer.pc || older.pc || "",
+        user: newer.user || older.user || "",
+        staff: cleanStaffNewer || cleanStaffOlder || "",
+        branch: newer.branch || older.branch || "สำนักงานใหญ่",
+        ver: highestVer || "0.0.0",
+        ts: Math.max(aTs, bTs),
+        totalClicks: maxTotalClicks,
+        todayClicks: newer.todayClicks !== undefined ? Number(newer.todayClicks) : (Number(older.todayClicks) || 0),
+        lastAction: newer.lastAction || older.lastAction || "เปิดส่วนขยายพร้อมใช้งาน",
+        lastActionTs: Math.max(Number(a.lastActionTs) || 0, Number(b.lastActionTs) || 0),
+        actions: combinedActions,
+        mergedIds
+      };
+    }
+
     function mergeMachineRecord(id, incoming) {
       if (!id || !incoming) return;
+      const cleanIncoming = {
+        ...incoming,
+        id: incoming.id || id,
+        staff: sanitizeStaffName(incoming.staff)
+      };
+      if (cleanIncoming.legacyId && machinesMap[cleanIncoming.legacyId] && cleanIncoming.legacyId !== id) {
+        const legacyRec = machinesMap[cleanIncoming.legacyId];
+        delete machinesMap[cleanIncoming.legacyId];
+        machinesMap[id] = combineTwoRecords(legacyRec, machinesMap[id] || {});
+      }
       const prev = machinesMap[id] || {};
-      const merged = { ...prev, ...incoming };
-      if (!incoming.staff && prev.staff) merged.staff = prev.staff;
-      if (!incoming.branch && prev.branch) merged.branch = prev.branch;
-      if (!incoming.pc && prev.pc) merged.pc = prev.pc;
-      if (!incoming.user && prev.user) merged.user = prev.user;
-      if (incoming.totalClicks === undefined && prev.totalClicks !== undefined) merged.totalClicks = prev.totalClicks;
-      if (incoming.todayClicks === undefined && prev.todayClicks !== undefined) merged.todayClicks = prev.todayClicks;
-      if (!incoming.lastAction && prev.lastAction) merged.lastAction = prev.lastAction;
-      if (!incoming.lastActionTs && prev.lastActionTs) merged.lastActionTs = prev.lastActionTs;
-      if ((!incoming.actions || Object.keys(incoming.actions).length === 0) && prev.actions) {
-        merged.actions = prev.actions;
-      }
-      if (prev.ver && incoming.ver && compareSemVer(prev.ver, incoming.ver) > 0 && (prev.ts || 0) >= (incoming.ts || 0)) {
-        merged.ver = prev.ver;
-      }
-      machinesMap[id] = merged;
+      machinesMap[id] = combineTwoRecords(prev, cleanIncoming);
     }
+
+    function getDeduplicatedMachines() {
+      const rawList = Object.values(machinesMap);
+      let mergedDuplicateCount = 0;
+
+      // Pass 1: Deduplicate by PC name (if PC name is present)
+      const byPc = new Map();
+      const withoutPc = [];
+      for (const item of rawList) {
+        const cleanItem = { ...item, staff: sanitizeStaffName(item.staff) };
+        const pcKey = String(cleanItem.pc || "").trim().toUpperCase();
+        if (pcKey) {
+          if (byPc.has(pcKey)) {
+            byPc.set(pcKey, combineTwoRecords(byPc.get(pcKey), cleanItem));
+            mergedDuplicateCount++;
+          } else {
+            byPc.set(pcKey, cleanItem);
+          }
+        } else {
+          withoutPc.push(cleanItem);
+        }
+      }
+
+      // Pass 2: Deduplicate by normalized Staff name (merges old PC_XXXX into current PC or merges reinstalls)
+      const pass1List = [...byPc.values(), ...withoutPc];
+      const byStaff = new Map();
+      const unlabelled = [];
+      for (const item of pass1List) {
+        const staffKey = sanitizeStaffName(item.staff);
+        if (staffKey) {
+          if (byStaff.has(staffKey)) {
+            byStaff.set(staffKey, combineTwoRecords(byStaff.get(staffKey), item));
+            mergedDuplicateCount++;
+          } else {
+            byStaff.set(staffKey, item);
+          }
+        } else {
+          unlabelled.push(item);
+        }
+      }
+
+      const finalMachines = [...byStaff.values(), ...unlabelled].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+      // Count total historical merged IDs across all machines
+      for (const m of finalMachines) {
+        if (Array.isArray(m.mergedIds) && m.mergedIds.length > 1) {
+          mergedDuplicateCount = Math.max(mergedDuplicateCount, finalMachines.reduce((acc, cur) => acc + Math.max(0, (cur.mergedIds?.length || 1) - 1), 0));
+        }
+      }
+
+      // Update machinesMap in-place with deduplicated canonical entries so localStorage stays clean
+      const cleanMap = {};
+      for (const m of finalMachines) {
+        cleanMap[m.id] = m;
+      }
+      machinesMap = cleanMap;
+
+      return { machines: finalMachines, mergedDuplicateCount };
+    }
+
+    // Load saved localStorage cache if newer, then deduplicate immediately
+    try {
+      const saved = localStorage.getItem("ihc_admin_machines_v1");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        for (const [id, data] of Object.entries(parsed)) {
+          mergeMachineRecord(id, data);
+        }
+      }
+      getDeduplicatedMachines();
+    } catch {}
 
     function escapeHtml(str) {
       return String(str || "")
@@ -433,6 +620,38 @@
       t.__timer = setTimeout(() => t.classList.add("hidden"), 3200);
     }
 
+    async function sendUpdateNotice(targetMachineId) {
+      const message = document.getElementById("admin-notice-message").value.trim()
+        || `มีอัปเดตส่วนขยาย iHAVECPU เป็น v${targetVersion} กรุณากดรีโหลดส่วนขยายเพื่ออัปเดต`;
+      if (!message || message.length > 240) {
+        showToast("ข้อความแจ้งเตือนต้องมีความยาวไม่เกิน 240 ตัวอักษร");
+        return;
+      }
+
+      const rec = machinesMap[targetMachineId];
+      const targets = (targetMachineId !== "*" && rec && Array.isArray(rec.mergedIds) && rec.mergedIds.length > 0)
+        ? rec.mergedIds
+        : [targetMachineId];
+
+      for (const tId of targets) {
+        const response = await fetch("https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053", {
+          method: "POST",
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+          body: JSON.stringify({
+            type: "admin-update-notice",
+            targetMachineId: tId,
+            message,
+            version: targetVersion,
+            sentAt: Date.now()
+          })
+        });
+        if (!response.ok) {
+          throw new Error(`ส่งไม่สำเร็จ (HTTP ${response.status})`);
+        }
+      }
+      return message;
+    }
+
     async function copyToClipboard(text, successMsg) {
       try {
         await navigator.clipboard.writeText(text);
@@ -449,7 +668,11 @@
     }
 
     function renderDashboard() {
-      const allMachines = Object.values(machinesMap).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      const { machines: allMachines, mergedDuplicateCount } = getDeduplicatedMachines();
+      const mergedBadgeEl = document.getElementById("merged-duplicates-badge");
+      if (mergedBadgeEl) {
+        mergedBadgeEl.textContent = `ยุบรวมข้อมูลซ้ำอัตโนมัติ ${mergedDuplicateCount} รายการ`;
+      }
 
       // Detect highest version if any machine has higher than targetVersion
       for (const m of allMachines) {
@@ -658,6 +881,11 @@
             <td class="py-3.5 px-4">
               <div class="mono text-xs font-semibold text-slate-200">${escapeHtml(pcLabel)}</div>
               <div class="mono text-[11px] text-slate-500">ID: ${escapeHtml(m.id)}</div>
+              ${Array.isArray(m.mergedIds) && m.mergedIds.length > 1
+                ? `<div class="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px]">🔗 รวมข้อมูลล่าสุดจาก ${m.mergedIds.length} รหัส</div>`
+                : (!m.pc && String(m.id).startsWith("PC_")
+                    ? `<div class="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px]">📂 โหลดตรง (แนะรันไฟล์ติดตั้ง)</div>`
+                    : "")}
             </td>
             <td class="py-3.5 px-4">
               <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${st.badgeClass}">
@@ -691,6 +919,13 @@
             <td class="py-3.5 px-4 max-w-xs">
               <div class="text-xs font-semibold ${isUpd ? "text-emerald-300" : "text-amber-300"}">${escapeHtml(advice.title)}</div>
               <div class="text-[11px] text-slate-400 mt-0.5 leading-snug">${escapeHtml(advice.detail)}</div>
+              <button
+                type="button"
+                data-notify-machine="${escapeHtml(m.id)}"
+                class="btn-send-update-notice mt-2 mr-1 px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-200 border border-red-500/30 text-[11px] font-semibold transition cursor-pointer"
+              >
+                📣 แจ้งเครื่องนี้
+              </button>
               <button
                 type="button"
                 data-copy-msg="${escapeHtml(advice.copyText)}"
@@ -757,8 +992,42 @@
       showToast("ดึงข้อมูลสถานะเครื่องแอดมินล่าสุดเรียบร้อยแล้ว");
     });
 
+    document.getElementById("btn-send-update-notice-all").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const { machines: allMachines } = getDeduplicatedMachines();
+      const machineCount = allMachines.length;
+      if (!machineCount || !window.confirm(`ส่งข้อความแจ้งเตือนไปยังส่วนขยายทุกเครื่อง (${machineCount} เครื่อง)?`)) return;
+      button.disabled = true;
+      try {
+        await sendUpdateNotice("*");
+        showToast(`ส่งแจ้งเตือนอัปเดตทุกเครื่องแล้ว (${machineCount} เครื่อง)`);
+      } catch (error) {
+        showToast(`ส่งแจ้งเตือนไม่สำเร็จ: ${error.message}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    const btnCopyReinstallGuide = document.getElementById("btn-copy-reinstall-guide");
+    if (btnCopyReinstallGuide) {
+      btnCopyReinstallGuide.addEventListener("click", () => {
+        const guideLines = [
+          `🛠️ วิธีแก้ไขสำหรับเครื่องแอดมินที่เคยลงเวอร์ชันเก่า หรือ ลบส่วนขยายแล้วลงใหม่ (เวอร์ชันล่าสุด v${targetVersion})`,
+          "",
+          "✅ กรณีที่ 1: เครื่องที่เคยลงเวอร์ชันเก่าไว้ หรือกดอัปเดตแล้วเลขเวอร์ชันไม่เปลี่ยน",
+          "1) ให้ดับเบิลคลิกไฟล์ 'ติดตั้งส่วนขยาย.bat' หรือ 'อัปเดตส่วนขยาย.bat' ซ้ำได้เลย (ระบบจะตามไปอัปเดตทุกโฟลเดอร์ที่เคยแตกไฟล์ไว้ทั้งใน Downloads / Desktop / AppData ให้อัตโนมัติ)",
+          "2) เปิด Chrome ไปที่ chrome://extensions/ แล้วกดปุ่มรีโหลด ↻ ที่ส่วนขยาย iHAVECPU 1 ครั้ง",
+          "",
+          "✅ กรณีที่ 2: เครื่องที่เผลอลบส่วนขยายออกแล้วลงใหม่",
+          "1) ดับเบิลคลิกไฟล์ 'ติดตั้งส่วนขยาย.bat' ระบบจะติดตั้งลงโฟลเดอร์ถาวรและเปิดหน้า chrome://extensions/ ให้อัตโนมัติ",
+          "2) เปิดหน้าเว็บ AdMeta (admeta.me) ทิ้งไว้ 5 วินาที ระบบจะซิงก์ชื่อแอดมินและรวมประวัติการใช้งานเดิมกลับมาให้อัตโนมัติครับ"
+        ];
+        copyToClipboard(guideLines.join("\n"), "คัดลอกคู่มือสำหรับเครื่องที่ลบลงใหม่ / เวอร์ชันเก่าเรียบร้อยแล้ว!");
+      });
+    }
+
     document.getElementById("btn-copy-outdated-report").addEventListener("click", () => {
-      const allMachines = Object.values(machinesMap).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      const { machines: allMachines } = getDeduplicatedMachines();
       const outdated = allMachines.filter(m => compareSemVer(m.ver || "0", targetVersion) < 0);
       if (outdated.length === 0) {
         copyToClipboard(`✅ เครื่องแอดมินทั้งหมด ${allMachines.length} เครื่องอัปเดตเป็นเวอร์ชันล่าสุด v${targetVersion} ครบ 100% แล้ว!`, "คัดลอกสรุปสถานะเรียบร้อยแล้ว!");
@@ -782,6 +1051,15 @@
     });
 
     document.addEventListener("click", (e) => {
+      const notifyButton = e.target.closest(".btn-send-update-notice");
+      if (notifyButton) {
+        notifyButton.disabled = true;
+        sendUpdateNotice(notifyButton.getAttribute("data-notify-machine"))
+          .then(() => showToast("ส่งแจ้งเตือนอัปเดตไปยังเครื่องนี้แล้ว"))
+          .catch((error) => showToast(`ส่งแจ้งเตือนไม่สำเร็จ: ${error.message}`))
+          .finally(() => { notifyButton.disabled = false; });
+        return;
+      }
       const copyBtn = e.target.closest(".btn-copy-single");
       if (copyBtn) {
         const msg = copyBtn.getAttribute("data-copy-msg") || "";
@@ -814,4 +1092,3 @@
   </script>
 </body>
 </html>
-

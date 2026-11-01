@@ -69,34 +69,107 @@ if ($WhatIf) {
 }
 
 Write-Host "1/3 $([char]0x0E01)$([char]0x0E33)$([char]0x0E25)$([char]0x0E31)$([char]0x0E07)$([char]0x0E04)$([char]0x0E31)$([char]0x0E14)$([char]0x0E25)$([char]0x0E2D)$([char]0x0E01)$([char]0x0E2A)$([char]0x0E48)$([char]0x0E27)$([char]0x0E19)$([char]0x0E02)$([char]0x0E22)$([char]0x0E32)$([char]0x0E22)$([char]0x0E44)$([char]0x0E1B)$([char]0x0E22)$([char]0x0E31)$([char]0x0E07)$([char]0x0E42)$([char]0x0E1F)$([char]0x0E25)$([char]0x0E40)$([char]0x0E14)$([char]0x0E2D)$([char]0x0E23)$([char]0x0E4C)$([char]0x0E16)$([char]0x0E32)$([char]0x0E27)$([char]0x0E23)$([char]0x0E02)$([char]0x0E2D)$([char]0x0E07)$([char]0x0E40)$([char]0x0E04)$([char]0x0E23)$([char]0x0E37)$([char]0x0E48)$([char]0x0E2D)$([char]0x0E07)..." -ForegroundColor Cyan
-if (-not (Test-Path -LiteralPath $permanentDirectory)) {
-  New-Item -ItemType Directory -Path $permanentDirectory -Force | Out-Null
-}
-if ($sourceDirectory -ne $permanentDirectory) {
-  $excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|admin-dashboard\.html|.*001.*|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip|GEMINI\.md|\.agents|monitor)$'
-  $checkAdminPrefix = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)"
-  Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object {
-    $_.Name -notmatch $excludedPattern -and -not $_.Name.StartsWith($checkAdminPrefix)
-  } | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination $permanentDirectory -Recurse -Force
+
+function Read-FileSharedInstaller($path) {
+  $fs = $null
+  $sr = $null
+  try {
+    $fs = New-Object System.IO.FileStream($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+    return $sr.ReadToEnd()
+  } finally {
+    if ($sr) { $sr.Dispose() }
+    elseif ($fs) { $fs.Dispose() }
   }
 }
+
+$installTargetSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+[void]$installTargetSet.Add($permanentDirectory)
+
+# Also discover any legacy/previous unpacked extension folders on this PC so reinstalling or updating works seamlessly
+$browserUserDataDirs = @(
+  (Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"),
+  (Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data"),
+  (Join-Path $env:LOCALAPPDATA "BraveSoftware\Brave-Browser\User Data")
+)
+foreach ($userDataDir in $browserUserDataDirs) {
+  try {
+    if (-not (Test-Path -LiteralPath $userDataDir -ErrorAction SilentlyContinue)) { continue }
+    $prefFiles = Get-ChildItem -LiteralPath $userDataDir -Include "Preferences", "Secure Preferences" -Recurse -Depth 2 -ErrorAction SilentlyContinue
+    foreach ($prefFile in $prefFiles) {
+      try {
+        $rawPref = Read-FileSharedInstaller $prefFile.FullName
+        $pathMatches = [regex]::Matches($rawPref, '"path"\s*:\s*"((?:[^"\\]|\\.)*)"')
+        foreach ($m in $pathMatches) {
+          try {
+            $candidatePath = [regex]::Unescape($m.Groups[1].Value)
+            if ((Test-Path -LiteralPath (Join-Path $candidatePath "manifest.json") -ErrorAction SilentlyContinue) -and
+                (Test-Path -LiteralPath (Join-Path $candidatePath "admeta-spec-builder.js") -ErrorAction SilentlyContinue) -and
+                -not (Test-Path -LiteralPath (Join-Path $candidatePath ".git") -ErrorAction SilentlyContinue)) {
+              [void]$installTargetSet.Add($candidatePath)
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
+$commonRoots = @(
+  (Join-Path $env:USERPROFILE "Downloads"),
+  (Join-Path $env:USERPROFILE "Desktop"),
+  (Join-Path $env:USERPROFILE "Documents")
+)
+foreach ($root in $commonRoots) {
+  try {
+    if (-not (Test-Path -LiteralPath $root -ErrorAction SilentlyContinue)) { continue }
+    $foundManifests = Get-ChildItem -LiteralPath $root -Filter "manifest.json" -Recurse -Depth 5 -ErrorAction SilentlyContinue
+    foreach ($mf in $foundManifests) {
+      try {
+        $candDir = $mf.Directory.FullName
+        if ((Test-Path -LiteralPath (Join-Path $candDir "admeta-spec-builder.js") -ErrorAction SilentlyContinue) -and
+            -not (Test-Path -LiteralPath (Join-Path $candDir ".git") -ErrorAction SilentlyContinue)) {
+          [void]$installTargetSet.Add($candDir)
+        }
+      } catch {}
+    }
+  } catch {}
+}
+
+$excludedPattern = '^(\.git|\.gitignore|publish-update\.ps1|.*GitHub.*\.bat|check-machines.*|admin-dashboard\.html|.*001.*|device-info\.json|machines-cache\.json|README-.*|TEST_CHECKLIST\.md|.*\.zip|GEMINI\.md|\.agents|monitor)$'
+$checkAdminPrefix = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)"
+$itemsToInstall = Get-ChildItem -LiteralPath $sourceDirectory -Force | Where-Object {
+  $_.Name -notmatch $excludedPattern -and -not $_.Name.StartsWith($checkAdminPrefix)
+}
+
+$devInfoJson = @{
+  machineId    = "$($env:COMPUTERNAME)_$($env:USERNAME)"
+  computerName = [string]$env:COMPUTERNAME
+  windowsUser  = [string]$env:USERNAME
+} | ConvertTo-Json -Compress
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+foreach ($destDir in $installTargetSet) {
+  try {
+    if (-not (Test-Path -LiteralPath $destDir)) {
+      New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    }
+    if ($sourceDirectory -ne $destDir) {
+      foreach ($item in $itemsToInstall) {
+        Copy-Item -LiteralPath $item.FullName -Destination $destDir -Recurse -Force
+      }
+    }
+    [System.IO.File]::WriteAllText((Join-Path $destDir "device-info.json"), $devInfoJson, $utf8NoBom)
+  } catch {}
+}
+
 try {
-  $devInfo = @{
-    machineId    = "$($env:COMPUTERNAME)_$($env:USERNAME)"
-    computerName = [string]$env:COMPUTERNAME
-    windowsUser  = [string]$env:USERNAME
-  } | ConvertTo-Json -Compress
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-  [System.IO.File]::WriteAllText((Join-Path $permanentDirectory "device-info.json"), $devInfo, $utf8NoBom)
   $hbBody = @{
     id          = "$($env:COMPUTERNAME)_$($env:USERNAME)"
     pc          = [string]$env:COMPUTERNAME
     user        = [string]$env:USERNAME
     ver         = [string]$manifest.version
     ts          = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    totalClicks = 0
-    todayClicks = 0
     lastAction  = "First-time Install"
   } | ConvertTo-Json -Compress
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

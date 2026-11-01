@@ -1,5 +1,5 @@
 (() => {
-  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.23";
+  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.24";
   if (window.__ihavecpuAdmetaInstalled === currentExtVer && window.__ihavecpuAdmetaRuntimeAlive?.()) return;
   window.__ihavecpuAdmetaInstalled = currentExtVer;
   window.__ihavecpuAdmetaRuntimeAlive = () => Boolean(chrome?.runtime?.id);
@@ -7,24 +7,40 @@
   document.getElementById("ihavecpu-platform-calc-reset-inline")?.remove();
   document.getElementById("ihavecpu-update-notice")?.remove();
 
+  const INVALID_STAFF_MENU_RE = /(หน้าหลัก|การขาย|จัดสเป[กค]|ใบเสนอราคา|คำนวณ|ตั้งค่า|ออกจากระบบ|วันหยุด|ประกาศ|บัญชี|การเงิน|จัดการ|ขนส่ง|คำสั่งซื้อ|คลังไฟล์|พัสดุ|สินค้า|ใบแจ้งหนี้|แจ้งโอน|เจ้าหน้าที่|แอดมิน|สำนักงานใหญ่|สาขา|ออนไลน์|ค้นหา|ประวัติ|ฟีเจอร์|โหมด|ราคา|แพลตฟอร์ม|SpecBuddy|Inventory|Onsite|Service|RMA|Admin)/i;
+
+  function isValidStaffName(raw) {
+    const cleanName = String(raw || "").replace(/\s+/g, " ").trim();
+    if (cleanName.length < 4 || cleanName.length > 40) return false;
+    if (INVALID_STAFF_MENU_RE.test(cleanName)) return false;
+    if (!/^[ก-๙a-zA-Z\s.]+$/.test(cleanName)) return false;
+    const parts = cleanName.split(" ").filter(Boolean);
+    if (parts.length < 2 || parts.length > 3) return false;
+    if (parts.some((p) => /^(และ|หรือ|ของ|ใน|ที่|จาก|ไป)$/.test(p))) return false;
+    return true;
+  }
+
   function detectSidebarStaffInfo() {
     try {
       const aside = document.querySelector("aside, nav, [class*='sidebar'], header");
       if (!aside) return;
-      const textNodes = [...aside.querySelectorAll("span, p, div, strong, h4, h5, h6")]
-        .map(el => (el.textContent || "").trim())
-        .filter(t => t.length >= 3 && t.length <= 40 && !/(หน้าหลัก|การขาย|จัดสเปค|ใบเสนอราคา|คำนวณ|ตั้งค่า|ออกจากระบบ)/.test(t));
-      const staffLine = textNodes.find(t => /^[ก-๙a-zA-Z\s.]+$/.test(t) && t.includes(" "));
-      const branchLine = textNodes.find(t => /(สาขา|สำนักงานใหญ่|นครนายก|กทม|รามอินทรา|บางนา|รังสิต)/i.test(t));
+      const nodes = [...aside.querySelectorAll("span, p, div, strong, b, h4, h5, h6")]
+        .filter((el) => el.children.length === 0 || el.querySelectorAll("span, div, p").length === 0)
+        .map((el) => (el.textContent || "").replace(/\s+/g, " ").trim())
+        .filter((t) => t.length >= 3 && t.length <= 45);
+      const staffLine = nodes.find(isValidStaffName);
+      const branchLine = nodes.find((t) => /(สาขา|สำนักงานใหญ่|นครนายก|กทม|รามอินทรา|บางนา|รังสิต)/i.test(t));
       if (staffLine) {
+        const cleanBranch = (branchLine || "").replace(/^[^\u0E00-\u0E7Fa-zA-Z0-9]+/, "").replace(/\s+/g, " ").trim();
         chrome.runtime.sendMessage({
           type: "SYNC_STAFF_INFO",
           staff: staffLine,
-          branch: branchLine || ""
+          branch: cleanBranch
         }).catch(() => {});
       }
     } catch {}
   }
+  setTimeout(detectSidebarStaffInfo, 600);
   setTimeout(detectSidebarStaffInfo, 2000);
   setTimeout(detectSidebarStaffInfo, 8000);
   setInterval(detectSidebarStaffInfo, 30000);
@@ -2141,6 +2157,16 @@
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === "TRIGGER_PROTOCOL_UPDATER") {
+      try {
+        const iframe = document.createElement("iframe");
+        iframe.style.display = "none";
+        iframe.src = "ihavecpu-updater://update";
+        document.body.appendChild(iframe);
+        setTimeout(() => iframe.remove(), 4000);
+      } catch {}
+      return;
+    }
     if (message?.type === "SHOW_UPDATE_NOTICE") {
       showUpdateNotice(message.status);
       return;

@@ -43,9 +43,34 @@ function Write-Info($msg, $color = "Cyan") {
   }
 }
 
+function Read-FileShared($path) {
+  $fs = $null
+  $sr = $null
+  try {
+    $fs = New-Object System.IO.FileStream($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+    return $sr.ReadToEnd()
+  } finally {
+    if ($sr) { $sr.Dispose() }
+    elseif ($fs) { $fs.Dispose() }
+  }
+}
+
 function Read-JsonFileNoBom($path) {
-  $raw = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8).TrimStart([char]0xFEFF).Trim()
+  $raw = (Read-FileShared $path).TrimStart([char]0xFEFF).Trim()
   return ($raw | ConvertFrom-Json)
+}
+
+function Remove-ObsoleteExtensionFiles($folderPath) {
+  try {
+    if (-not (Safe-TestPath $folderPath)) { return }
+    $checkPrefix = "$([char]0x0E40)$([char]0x0E0A)$([char]0x0E47)"
+    Get-ChildItem -LiteralPath $folderPath -Force -ErrorAction SilentlyContinue | Where-Object {
+      $_.Name -match '^(check-machines\.ps1|publish-update\.ps1|.*001.*|.*GitHub.*\.bat)$' -or $_.Name.StartsWith($checkPrefix)
+    } | ForEach-Object {
+      Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  } catch {}
 }
 
 function Write-Utf8NoBom($path, $text) {
@@ -162,11 +187,11 @@ foreach ($userDataDir in $browserUserDataDirs) {
     $prefFiles = Get-ChildItem -LiteralPath $userDataDir -Include "Preferences", "Secure Preferences" -Recurse -Depth 2 -ErrorAction SilentlyContinue
     foreach ($prefFile in $prefFiles) {
       try {
-        $rawPref = [System.IO.File]::ReadAllText($prefFile.FullName, [System.Text.Encoding]::UTF8)
-        $pathMatches = [regex]::Matches($rawPref, '"path"\s*:\s*"([A-Za-z]:\\(?:[^"\\]|\\.)*)"')
+        $rawPref = Read-FileShared $prefFile.FullName
+        $pathMatches = [regex]::Matches($rawPref, '"path"\s*:\s*"((?:[^"\\]|\\.)*)"')
         foreach ($m in $pathMatches) {
           try {
-            $candidatePath = $m.Groups[1].Value -replace '\\\\', '\'
+            $candidatePath = [regex]::Unescape($m.Groups[1].Value)
             if ((Safe-TestPath (Join-Path $candidatePath "manifest.json")) -and
                 (Safe-TestPath (Join-Path $candidatePath "admeta-spec-builder.js")) -and
                 -not (Safe-TestPath (Join-Path $candidatePath ".git"))) {
@@ -181,12 +206,13 @@ foreach ($userDataDir in $browserUserDataDirs) {
 
 $commonRoots = @(
   (Join-Path $env:USERPROFILE "Downloads"),
-  (Join-Path $env:USERPROFILE "Desktop")
+  (Join-Path $env:USERPROFILE "Desktop"),
+  (Join-Path $env:USERPROFILE "Documents")
 )
 foreach ($root in $commonRoots) {
   try {
     if (-not (Safe-TestPath $root)) { continue }
-    $foundManifests = Get-ChildItem -LiteralPath $root -Filter "manifest.json" -Recurse -Depth 3 -ErrorAction SilentlyContinue
+    $foundManifests = Get-ChildItem -LiteralPath $root -Filter "manifest.json" -Recurse -Depth 5 -ErrorAction SilentlyContinue
     foreach ($mf in $foundManifests) {
       try {
         $candDir = $mf.Directory.FullName
@@ -259,6 +285,7 @@ if ($isMasterRepo -and -not $Silent) {
         foreach ($item in $cleanItems) {
           Copy-Item -LiteralPath $item.FullName -Destination $destDir -Recurse -Force
         }
+        Remove-ObsoleteExtensionFiles $destDir
         Write-DeviceInfoFile $destDir
         Write-Host "   -> Updated local folder: $destDir (v$currentVer)" -ForegroundColor Green
       } catch {}
@@ -467,6 +494,7 @@ try {
       foreach ($item in $filesToCopy) {
         Copy-Item -LiteralPath $item.FullName -Destination $destDir -Recurse -Force
       }
+      Remove-ObsoleteExtensionFiles $destDir
       Write-DeviceInfoFile $destDir
       $newConfigPath = Join-Path $destDir "update-config.json"
       if (Safe-TestPath $newConfigPath) {

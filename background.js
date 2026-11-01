@@ -775,7 +775,7 @@ async function sendAdmetaMessage(tabId, message) {
           try {
             await chrome.scripting.executeScript({
               target: { tabId },
-              files: ["admeta-spec-builder.js"]
+              files: ["notification-banner.js", "admeta-spec-builder.js"]
             });
           } catch {}
         }
@@ -1253,7 +1253,7 @@ async function sendPlatformCalculatorMessage(tabId, message) {
           try {
             await chrome.scripting.executeScript({
               target: { tabId },
-              files: ["admeta-spec-builder.js"]
+              files: ["notification-banner.js", "admeta-spec-builder.js"]
             });
           } catch {}
         }
@@ -1466,6 +1466,8 @@ chrome.commands.onCommand.addListener(async (command) => {
 // ระบบตรวจสอบเวอร์ชันและรีโหลดส่วนขยายอัตโนมัติ (GitHub + Local Disk Watcher สำหรับ V4)
 // ============================================================================
 const UPDATE_ALARM_NAME = "ihavecpu-auto-update-check";
+const ADMIN_NOTICE_ALARM_NAME = "ihavecpu-admin-update-notice";
+const MACHINE_STATS_TOPIC = "ihc_ext_stat_9f4b2c8e1d7a6053";
 const DEFAULT_GITHUB_OWNER = "orangnakao-tech";
 const DEFAULT_GITHUB_REPO = "ihavecpu-copy-product";
 let activeOperationsCount = 0;
@@ -1609,7 +1611,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
       if (tab?.id) {
         chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ["content.js"]
+          files: ["notification-banner.js", "content.js"]
         }).catch(() => {});
       }
     }
@@ -1620,7 +1622,7 @@ async function reinjectContentScriptsIntoOpenTabs() {
       if (tab?.id) {
         chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ["admeta-spec-builder.js"]
+          files: ["notification-banner.js", "admeta-spec-builder.js"]
         }).catch(() => {});
       }
     }
@@ -1652,6 +1654,37 @@ async function quickCheckDiskUpdate() {
 chrome.tabs.onActivated.addListener(() => {
   quickCheckDiskUpdate();
 });
+
+let lastProtocolUpdaterTriggerAt = 0;
+
+function sanitizeStaffName(rawName) {
+  const clean = String(rawName || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  if (/^(?:หน้าหลัก|การขาย|จัดสเปค|SpecBuddy|คำนวณเปลี่ยนสินค้า|ใบเสนอราคา|คำนวณราคาแพลตฟอร์ม|จัดการคำสั่งซื้อ|รายการคำสั่งซื้อ|Inventory|การจัดส่ง|การจัดการขนส่ง|คลังไฟล์แพลตฟอร์ม|จัดการพัสดุ|วันหยุด\s*และ\s*ประกาศ|จัดการสินค้า|บัญชี\s*และ\s*การเงิน|ใบแจ้งหนี้|แจ้งโอน|Onsite\s*Service|RMA|เจ้าหน้าที่แอดมิน|สำนักงานใหญ่|Admin|iHAVECPU)$/i.test(clean)) {
+    return "";
+  }
+  return clean;
+}
+
+async function triggerProtocolUpdaterInOpenTab() {
+  const now = Date.now();
+  if (now - lastProtocolUpdaterTriggerAt < 3 * 60 * 1000) return false;
+  lastProtocolUpdaterTriggerAt = now;
+  try {
+    const tabs = await chrome.tabs.query({});
+    const supportedTabs = tabs.filter((tab) =>
+      tab.id !== undefined &&
+      /^https:\/\/(?:(?:www\.)?ihavecpu\.com|app\.zaapi\.com|admeta\.me)\//i.test(tab.url || "")
+    );
+    for (const tab of supportedTabs) {
+      try {
+        const res = await chrome.tabs.sendMessage(tab.id, { type: "TRIGGER_PROTOCOL_UPDATER" });
+        if (res?.ok) return true;
+      } catch {}
+    }
+  } catch {}
+  return false;
+}
 
 async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {}) {
   const loadedVersion = chrome.runtime.getManifest().version;
@@ -1685,6 +1718,7 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {})
         timestamp: Date.now()
       }
     });
+    await sendMachineHeartbeat(true, diskVersion);
     chrome.runtime.reload();
     return { loadedVersion, diskVersion, remoteVersion, diskNeedsReload: true, reloaded: true };
   }
@@ -1705,6 +1739,10 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {})
     } catch (err) {
       console.warn("Remote GitHub version check failed:", err);
     }
+  }
+
+  if (remoteHasNewer && !diskNeedsReload) {
+    triggerProtocolUpdaterInOpenTab().catch(() => {});
   }
 
   await chrome.action.setBadgeText({ text: "" }).catch(() => {});
@@ -1735,13 +1773,21 @@ async function setupUpdateAlarm() {
 
 chrome.runtime.onInstalled.addListener(() => {
   setupUpdateAlarm();
+  setupAdminNoticeAlarm().catch((error) =>
+    console.warn("Could not start admin update notifications:", error)
+  );
   reinjectContentScriptsIntoOpenTabs();
   checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: false });
+  setTimeout(() => sendMachineHeartbeat(true), 1500);
 });
 
 chrome.runtime.onStartup.addListener(() => {
   setupUpdateAlarm();
+  setupAdminNoticeAlarm().catch((error) =>
+    console.warn("Could not start admin update notifications:", error)
+  );
   checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true });
+  setTimeout(() => sendMachineHeartbeat(true), 1500);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -1766,20 +1812,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "RELOAD_EXTENSION_NOW") {
     (async () => {
       const loadedVersion = chrome.runtime.getManifest().version;
+      let latestDiskVer = loadedVersion;
       for (let i = 0; i < 12; i++) {
         try {
           const diskRes = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" });
           if (diskRes.ok) {
             const diskText = (await diskRes.text()).replace(/^\uFEFF/, "").trim();
             const diskManifest = JSON.parse(diskText);
-            if (diskManifest?.version && diskManifest.version !== loadedVersion) {
-              break;
+            if (diskManifest?.version) {
+              latestDiskVer = diskManifest.version;
+              if (diskManifest.version !== loadedVersion) {
+                break;
+              }
             }
           }
         } catch {}
         if (!message.waitForDiskSync) break;
         await delay(500);
       }
+      await sendMachineHeartbeat(true, latestDiskVer);
       sendResponse({ ok: true });
       setTimeout(() => chrome.runtime.reload(), 80);
     })();
@@ -1788,10 +1839,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "SYNC_STAFF_INFO") {
     (async () => {
       try {
-        const { staff, branch } = message;
-        if (staff) {
-          await chrome.storage.local.set({ cachedStaffName: staff, cachedStaffBranch: branch || "" });
-          sendMachineHeartbeat(false);
+        const cleanStaff = sanitizeStaffName(message.staff);
+        const cleanBranch = String(message.branch || "").trim();
+        if (cleanStaff) {
+          const { cachedStaffName = "", cachedStaffBranch = "" } = await chrome.storage.local.get({
+            cachedStaffName: "",
+            cachedStaffBranch: ""
+          });
+          const isChanged = cleanStaff !== cachedStaffName || (cleanBranch && cleanBranch !== cachedStaffBranch);
+          await chrome.storage.local.set({
+            cachedStaffName: cleanStaff,
+            cachedStaffBranch: cleanBranch || cachedStaffBranch
+          });
+          await chrome.storage.sync.set({
+            syncStaffName: cleanStaff,
+            syncStaffBranch: cleanBranch || cachedStaffBranch
+          }).catch(() => {});
+          await sendMachineHeartbeat(isChanged);
         }
       } catch {}
     })();
@@ -1800,7 +1864,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "FETCH_MACHINES_REGISTRY") {
     (async () => {
       try {
-        const res = await fetch("https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053/json?poll=1&since=all", { cache: "no-store" });
+        const res = await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}/json?poll=1&since=all`, { cache: "no-store" });
         const text = await res.text();
         const lines = text.trim().split("\n");
         const { knownMachines = {} } = await chrome.storage.local.get({ knownMachines: {} });
@@ -1812,12 +1876,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const data = JSON.parse(rawEvent.message);
               if (data && data.id) {
                 const prev = knownMachines[data.id] || {};
-                const merged = { ...prev, ...data };
-                if (!data.staff && prev?.staff) merged.staff = prev.staff;
+                const cleanIncomingStaff = sanitizeStaffName(data.staff);
+                const cleanPrevStaff = sanitizeStaffName(prev.staff);
+                const merged = { ...prev, ...data, staff: cleanIncomingStaff || cleanPrevStaff };
                 if (!data.branch && prev?.branch) merged.branch = prev.branch;
                 if (!data.pc && prev?.pc) merged.pc = prev.pc;
                 if (!data.user && prev?.user) merged.user = prev.user;
-                if (data.totalClicks === undefined && prev?.totalClicks !== undefined) merged.totalClicks = prev.totalClicks;
+                if (prev.ver && data.ver && compareVersions(prev.ver, data.ver) > 0) merged.ver = prev.ver;
+                merged.ts = Math.max(Number(prev.ts) || 0, Number(data.ts) || 0);
+                merged.totalClicks = Math.max(Number(prev.totalClicks) || 0, Number(data.totalClicks) || 0);
                 if (data.todayClicks === undefined && prev?.todayClicks !== undefined) merged.todayClicks = prev.todayClicks;
                 if (!data.lastAction && prev?.lastAction) merged.lastAction = prev.lastAction;
                 if (!data.lastActionTs && prev?.lastActionTs) merged.lastActionTs = prev.lastActionTs;
@@ -1834,6 +1901,135 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
     return true;
+  }
+});
+
+async function initializeAdminNoticeCursor() {
+  const { adminNoticeCursor } = await chrome.storage.local.get({ adminNoticeCursor: "" });
+  if (adminNoticeCursor) return;
+
+  const response = await fetch(
+    `https://ntfy.sh/${MACHINE_STATS_TOPIC}/json?poll=1&since=latest`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) throw new Error(`ntfy returned HTTP ${response.status}`);
+  const lines = (await response.text()).trim().split("\n");
+  let latestId = "";
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const event = JSON.parse(line);
+    if (event.id) latestId = event.id;
+  }
+  if (latestId) await chrome.storage.local.set({ adminNoticeCursor: latestId });
+}
+
+async function showAdminNoticeOnOpenPages(message) {
+  const tabs = await chrome.tabs.query({});
+  const supportedTabs = tabs.filter((tab) =>
+    tab.id !== undefined &&
+    /^https:\/\/(?:(?:www\.)?ihavecpu\.com|app\.zaapi\.com|admeta\.me)\//i.test(tab.url || "")
+  );
+  const results = await Promise.all(supportedTabs.map(async (tab) => {
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "DISPLAY_ADMIN_UPDATE_NOTICE",
+        message
+      });
+      return true;
+    } catch (error) {
+      console.warn(`Could not display admin notice in tab ${tab.id}:`, error.message);
+      return false;
+    }
+  }));
+  return results.filter(Boolean).length;
+}
+
+async function pollAdminUpdateNotices() {
+  const { adminNoticeCursor = "" } = await chrome.storage.local.get({ adminNoticeCursor: "" });
+  const since = adminNoticeCursor || "latest";
+  const response = await fetch(
+    `https://ntfy.sh/${MACHINE_STATS_TOPIC}/json?poll=1&since=${encodeURIComponent(since)}`,
+    { cache: "no-store" }
+  );
+  if (!response.ok) throw new Error(`ntfy returned HTTP ${response.status}`);
+
+  const lines = (await response.text()).trim().split("\n");
+  let cursor = adminNoticeCursor;
+  let machineId;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (error) {
+      console.warn("Skipping malformed admin-notice event:", error);
+      continue;
+    }
+    if (event.id) cursor = event.id;
+    if (event.event !== "message" || typeof event.message !== "string") continue;
+
+    let notice;
+    try {
+      notice = JSON.parse(event.message);
+    } catch {
+      continue;
+    }
+    if (notice?.type !== "admin-update-notice" ||
+        typeof notice.message !== "string" ||
+        notice.message.trim().length === 0 ||
+        notice.message.length > 240) {
+      continue;
+    }
+
+    if (notice.targetMachineId !== "*") {
+      if (typeof notice.targetMachineId !== "string" || !notice.targetMachineId) continue;
+      if (machineId === undefined) {
+        const deviceInfoResponse = await fetch(chrome.runtime.getURL("device-info.json"), { cache: "no-store" });
+        if (deviceInfoResponse.ok) {
+          const deviceInfo = await deviceInfoResponse.json();
+          machineId = deviceInfo?.machineId || "";
+        }
+        if (!machineId) {
+          const { machineUid = "" } = await chrome.storage.local.get({ machineUid: "" });
+          machineId = machineUid;
+        }
+      }
+      if (notice.targetMachineId !== machineId) continue;
+    }
+
+    const displayedCount = await showAdminNoticeOnOpenPages(notice.message.trim());
+    if (!displayedCount) {
+      try {
+        await chrome.notifications.create(`ihc-admin-update-${event.id}`, {
+          type: "basic",
+          iconUrl: chrome.runtime.getURL("notification.svg"),
+          title: "แจ้งเตือนอัปเดต iHAVECPU",
+          message: notice.message.trim(),
+          priority: 2
+        });
+      } catch (error) {
+        console.warn("Could not show the system update notification:", error);
+      }
+    }
+  }
+  if (cursor && cursor !== adminNoticeCursor) {
+    await chrome.storage.local.set({ adminNoticeCursor: cursor });
+  }
+}
+
+async function setupAdminNoticeAlarm() {
+  await chrome.alarms.create(ADMIN_NOTICE_ALARM_NAME, {
+    delayInMinutes: 0.1,
+    periodInMinutes: 0.5
+  });
+  await initializeAdminNoticeCursor();
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ADMIN_NOTICE_ALARM_NAME) {
+    pollAdminUpdateNotices().catch((error) =>
+      console.warn("Could not check admin update notifications:", error)
+    );
   }
 });
 
@@ -1876,6 +2072,10 @@ async function recordUsageAction(actionName, details = "") {
       lastActionTs: Date.now(),
       actionsBreakdown: newActions
     });
+    await chrome.storage.sync.set({
+      syncTotalClicks: newTotal,
+      syncActionsBreakdown: newActions
+    }).catch(() => {});
 
     debounceSendHeartbeat(3000);
   } catch (err) {
@@ -1883,7 +2083,7 @@ async function recordUsageAction(actionName, details = "") {
   }
 }
 
-async function sendMachineHeartbeat(force = false) {
+async function sendMachineHeartbeat(force = false, overrideVersion = "") {
   const now = Date.now();
   if (!force && now - lastHeartbeatSentAt < 5 * 60 * 1000) return;
   lastHeartbeatSentAt = now;
@@ -1894,17 +2094,7 @@ async function sendMachineHeartbeat(force = false) {
       if (devRes.ok) deviceInfo = await devRes.json();
     } catch {}
 
-    const {
-      machineUid = "",
-      cachedStaffName = "",
-      cachedStaffBranch = "",
-      totalClicks = 0,
-      todayClicks = 0,
-      todayDate = "",
-      lastAction = "",
-      lastActionTs = 0,
-      actionsBreakdown = {}
-    } = await chrome.storage.local.get({
+    const localData = await chrome.storage.local.get({
       machineUid: "",
       cachedStaffName: "",
       cachedStaffBranch: "",
@@ -1916,31 +2106,64 @@ async function sendMachineHeartbeat(force = false) {
       actionsBreakdown: {}
     });
 
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const currentTodayClicks = todayDate === todayStr ? todayClicks : 0;
+    let syncData = {
+      syncMachineUid: "",
+      syncStaffName: "",
+      syncStaffBranch: "",
+      syncTotalClicks: 0,
+      syncActionsBreakdown: {}
+    };
+    try {
+      syncData = await chrome.storage.sync.get(syncData);
+    } catch {}
 
-    let finalId = deviceInfo?.machineId || machineUid;
+    const staffName = sanitizeStaffName(localData.cachedStaffName) || sanitizeStaffName(syncData.syncStaffName);
+    const branchName = (localData.cachedStaffBranch || syncData.syncStaffBranch || "").trim();
+    const mergedTotalClicks = Math.max(Number(localData.totalClicks) || 0, Number(syncData.syncTotalClicks) || 0);
+    const mergedActions = { ...(syncData.syncActionsBreakdown || {}), ...(localData.actionsBreakdown || {}) };
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const currentTodayClicks = localData.todayDate === todayStr ? (Number(localData.todayClicks) || 0) : 0;
+
+    const previousUid = localData.machineUid || syncData.syncMachineUid || "";
+    let finalId = deviceInfo?.machineId || previousUid;
     if (!finalId) {
       finalId = "PC_" + Math.random().toString(36).substring(2, 10).toUpperCase();
-      await chrome.storage.local.set({ machineUid: finalId });
     }
+
+    // Persist restored data back to local & sync storage (supports reinstall / ลบลงใหม่)
+    await chrome.storage.local.set({
+      machineUid: finalId,
+      cachedStaffName: staffName,
+      cachedStaffBranch: branchName,
+      totalClicks: mergedTotalClicks,
+      actionsBreakdown: mergedActions
+    }).catch(() => {});
+    await chrome.storage.sync.set({
+      syncMachineUid: finalId,
+      syncStaffName: staffName,
+      syncStaffBranch: branchName,
+      syncTotalClicks: mergedTotalClicks,
+      syncActionsBreakdown: mergedActions
+    }).catch(() => {});
 
     const payload = {
       id: finalId,
+      legacyId: (deviceInfo?.machineId && previousUid && previousUid !== deviceInfo.machineId) ? previousUid : "",
       pc: deviceInfo?.computerName || "",
       user: deviceInfo?.windowsUser || "",
-      staff: cachedStaffName,
-      branch: cachedStaffBranch,
-      ver: chrome.runtime.getManifest().version,
+      staff: staffName,
+      branch: branchName,
+      ver: overrideVersion || chrome.runtime.getManifest().version,
       ts: now,
-      totalClicks: totalClicks,
+      totalClicks: mergedTotalClicks,
       todayClicks: currentTodayClicks,
-      lastAction: lastAction || "เปิดส่วนขยายพร้อมใช้งาน",
-      lastActionTs: lastActionTs || now,
-      actions: actionsBreakdown
+      lastAction: localData.lastAction || "เปิดส่วนขยายพร้อมใช้งาน",
+      lastActionTs: localData.lastActionTs || now,
+      actions: mergedActions
     };
 
-    await fetch("https://ntfy.sh/ihc_ext_stat_9f4b2c8e1d7a6053", {
+    await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}`, {
       method: "POST",
       body: JSON.stringify(payload),
       headers: { "Content-Type": "text/plain; charset=utf-8" }

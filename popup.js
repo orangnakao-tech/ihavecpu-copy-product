@@ -221,23 +221,75 @@ function getUsageIntensity(totalClicks, todayClicks, lastTs) {
   return { label: "⚪ ยังไม่ใช้", color: "#94a3b8", bg: "#334155" };
 }
 
+function sanitizeStaffName(rawName) {
+  const clean = String(rawName || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  if (/^(?:หน้าหลัก|การขาย|จัดสเปค|SpecBuddy|คำนวณเปลี่ยนสินค้า|ใบเสนอราคา|คำนวณราคาแพลตฟอร์ม|จัดการคำสั่งซื้อ|รายการคำสั่งซื้อ|Inventory|การจัดส่ง|การจัดการขนส่ง|คลังไฟล์แพลตฟอร์ม|จัดการพัสดุ|วันหยุด\s*และ\s*ประกาศ|จัดการสินค้า|บัญชี\s*และ\s*การเงิน|ใบแจ้งหนี้|แจ้งโอน|Onsite\s*Service|RMA|เจ้าหน้าที่แอดมิน|สำนักงานใหญ่|Admin|iHAVECPU)$/i.test(clean)) {
+    return "";
+  }
+  return clean;
+}
+
+function compareSemVerPopup(v1, v2) {
+  const p1 = String(v1 || "0").replace(/^v/i, "").split(".").map(n => parseInt(n, 10) || 0);
+  const p2 = String(v2 || "0").replace(/^v/i, "").split(".").map(n => parseInt(n, 10) || 0);
+  const len = Math.max(p1.length, p2.length);
+  for (let i = 0; i < len; i++) {
+    const a = p1[i] || 0;
+    const b = p2[i] || 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+function mergeTwoMachineRecordsPopup(a, b) {
+  const newer = (b.ts || 0) >= (a.ts || 0) ? b : a;
+  const older = newer === b ? a : b;
+  const highestVer = compareSemVerPopup(a.ver, b.ver) >= 0 ? a.ver : b.ver;
+  return {
+    ...older,
+    ...newer,
+    id: (newer.pc ? newer.id : (older.pc ? older.id : newer.id)),
+    pc: newer.pc || older.pc || "",
+    user: newer.user || older.user || "",
+    staff: sanitizeStaffName(newer.staff) || sanitizeStaffName(older.staff) || "",
+    branch: newer.branch || older.branch || "",
+    ver: highestVer || newer.ver || older.ver || "0.0.0",
+    ts: Math.max(a.ts || 0, b.ts || 0),
+    totalClicks: Math.max(Number(a.totalClicks) || 0, Number(b.totalClicks) || 0),
+    todayClicks: Math.max(Number(a.todayClicks) || 0, Number(b.todayClicks) || 0),
+    lastAction: newer.lastAction || older.lastAction || ""
+  };
+}
+
 function deduplicateMachines(machines) {
-  const staffMap = new Map();
-  const pcList = [];
-  machines.forEach((m) => {
-    const key = (m.staff || "").trim();
-    if (key) {
-      const existing = staffMap.get(key);
-      if (!existing || (m.ts || 0) > (existing.ts || 0)) {
-        const combinedClicks = Math.max(existing?.totalClicks || 0, m.totalClicks || 0);
-        const combinedToday = Math.max(existing?.todayClicks || 0, m.todayClicks || 0);
-        staffMap.set(key, { ...existing, ...m, totalClicks: combinedClicks, todayClicks: combinedToday });
-      }
+  const byPc = new Map();
+  const noPc = [];
+  machines.forEach((raw) => {
+    const m = { ...raw, staff: sanitizeStaffName(raw.staff) };
+    const pcKey = String(m.pc || "").trim().toUpperCase();
+    if (pcKey) {
+      const existing = byPc.get(pcKey);
+      byPc.set(pcKey, existing ? mergeTwoMachineRecordsPopup(existing, m) : m);
     } else {
-      pcList.push(m);
+      noPc.push(m);
     }
   });
-  return [...staffMap.values(), ...pcList];
+
+  const combined = [...byPc.values(), ...noPc];
+  const byStaff = new Map();
+  const anonymousList = [];
+  combined.forEach((m) => {
+    const staffKey = sanitizeStaffName(m.staff);
+    if (staffKey) {
+      const existing = byStaff.get(staffKey);
+      byStaff.set(staffKey, existing ? mergeTwoMachineRecordsPopup(existing, m) : m);
+    } else {
+      anonymousList.push(m);
+    }
+  });
+  return [...byStaff.values(), ...anonymousList];
 }
 
 function loadAndRenderDiag() {
