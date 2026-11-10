@@ -1,14 +1,19 @@
 (() => {
-  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.26";
+  const currentExtVer = chrome?.runtime?.getManifest?.()?.version || "2.5.27";
   if (window.__ihavecpuCopyInstalled === currentExtVer && window.__ihavecpuCopyRuntimeAlive?.()) return;
   window.__ihavecpuCopyInstalled = currentExtVer;
   window.__ihavecpuCopyRuntimeAlive = () => Boolean(chrome?.runtime?.id);
 
   const STYLE_ID = "ihavecpu-copy-style";
   const BUTTON_ID = "ihavecpu-copy-floating-button";
+  const ZAAPI_PANEL_ID = "ihavecpu-zaapi-search-panel";
+  const ZAAPI_STYLE_ID = "ihavecpu-zaapi-search-styles";
   document.getElementById(BUTTON_ID)?.remove();
   document.getElementById(`${BUTTON_ID}-launcher`)?.remove();
+  document.getElementById(ZAAPI_PANEL_ID)?.remove();
+  document.getElementById(`${ZAAPI_PANEL_ID}-launcher`)?.remove();
   document.getElementById(STYLE_ID)?.remove();
+  document.getElementById(ZAAPI_STYLE_ID)?.remove();
   document.getElementById("ihavecpu-update-notice")?.remove();
   const ZAAPI_SELECTORS = {
     editors: ['[contenteditable="true"]', "textarea", '[role="textbox"]'],
@@ -780,8 +785,8 @@
         #${BUTTON_ID} .ihc-panel-body:empty { display:none; }
         #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-search,
         #${BUTTON_ID}[data-collapsed="true"] .ihc-panel-body { display:none; }
-        #${BUTTON_ID} button { border:0; border-radius:7px; padding:9px 12px; cursor:pointer;
-          font-weight:700; color:#fff; background:#d71920; white-space:nowrap; transition:background .18s ease; }
+        #${BUTTON_ID} button { border:0; border-radius:6px; padding:6px 10px; cursor:pointer;
+          font-size:12px; font-weight:700; color:#fff; background:#d71920; white-space:nowrap; transition:background .18s ease; }
         #${BUTTON_ID} button.secondary { color:#333; background:#f0f1f3; }
         #${BUTTON_ID} button:hover { filter:brightness(.95); }
         #${BUTTON_ID}[data-platform-mode="platform"] { border-color:#fdba74; box-shadow:0 4px 20px rgba(234,88,12,.22); }
@@ -794,8 +799,8 @@
         #${BUTTON_ID}[data-platform-mode="platform"] .ihc-admeta-search-input:focus {
           border-color:#ea580c; box-shadow:0 0 0 2px rgba(234,88,12,.18); }
         #${BUTTON_ID}-launcher { position:fixed; right:18px; bottom:18px; z-index:2147483646;
-          border:0; border-radius:20px; padding:10px 14px; background:#d71920; color:#fff;
-          box-shadow:0 3px 18px rgba(0,0,0,.22); font:700 13px Arial,Tahoma,sans-serif; cursor:pointer; }
+          border:0; border-radius:16px; padding:6px 11px; background:#d71920; color:#fff;
+          box-shadow:0 3px 14px rgba(0,0,0,.22); font:700 11.5px Arial,Tahoma,sans-serif; cursor:pointer; }
         #${BUTTON_ID}-launcher[data-platform-mode="platform"] { background:#ea580c; }
       `;
       document.documentElement.appendChild(style);
@@ -943,11 +948,411 @@
     }).catch((error) => showToast(`โหลดการตั้งค่าหน้าต่างไม่สำเร็จ: ${error.message}`, true));
   }
 
+  function findIhavecpuSearchInput() {
+    const selectors = [
+      'input[placeholder*="ค้นหาสินค้า" i]',
+      'input[placeholder*="ค้นหา" i]',
+      'input[aria-label*="ค้นหา" i]',
+      'header input[type="text"], header input[type="search"]',
+      'nav input[type="text"], nav input[type="search"]',
+      'input[type="search"]',
+      'input[name="search" i]',
+      'input[name="keyword" i]',
+      'input[name="q" i]'
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el && visible(el)) return el;
+    }
+    return null;
+  }
+
+  async function fillAndSearchIhavecpu(keyword) {
+    if (typeof keyword !== "string" || !keyword.trim()) {
+      return { ok: false, error: "ไม่มีคำค้นหา" };
+    }
+    const cleanKeyword = keyword.trim();
+
+    let searchInput = findIhavecpuSearchInput();
+    if (!searchInput) {
+      const started = Date.now();
+      while (Date.now() - started < 4000) {
+        await new Promise((r) => setTimeout(r, 200));
+        searchInput = findIhavecpuSearchInput();
+        if (searchInput) break;
+      }
+    }
+
+    if (!searchInput) {
+      location.href = `https://www.ihavecpu.com/category?keyword=${encodeURIComponent(cleanKeyword)}`;
+      return { ok: true, fallback: true };
+    }
+
+    try { searchInput.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
+    searchInput.focus();
+
+    try {
+      const proto = Object.getPrototypeOf(searchInput);
+      const desc = Object.getOwnPropertyDescriptor(proto, "value");
+      if (desc?.set) {
+        desc.set.call(searchInput, cleanKeyword);
+      } else {
+        searchInput.value = cleanKeyword;
+      }
+    } catch {
+      searchInput.value = cleanKeyword;
+    }
+
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    searchInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+    const enterOpts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    searchInput.dispatchEvent(new KeyboardEvent("keydown", enterOpts));
+    searchInput.dispatchEvent(new KeyboardEvent("keypress", enterOpts));
+    searchInput.dispatchEvent(new KeyboardEvent("keyup", enterOpts));
+
+    const form = searchInput.closest("form");
+    const searchBtn = form?.querySelector('button[type="submit"], button, [role="button"]') ||
+                      searchInput.parentElement?.querySelector('button, [role="button"], svg, i') ||
+                      document.querySelector('button[type="submit"], [class*="search"] button');
+    if (searchBtn) {
+      try { searchBtn.click(); } catch {}
+    } else if (form) {
+      try { form.submit(); } catch {}
+    }
+
+    setTimeout(() => {
+      const curSearch = location.search || "";
+      const curPath = location.pathname || "";
+      if (!curSearch.includes("keyword=") && !curPath.includes("/category") && !curPath.includes("/search")) {
+        location.href = `https://www.ihavecpu.com/category?keyword=${encodeURIComponent(cleanKeyword)}`;
+      }
+    }, 1200);
+
+    return { ok: true };
+  }
+
+  function initZaapiSearchPanel() {
+    if (location.hostname !== "app.zaapi.com") return;
+    if (document.getElementById(ZAAPI_PANEL_ID)) return;
+
+    if (!document.getElementById(ZAAPI_STYLE_ID)) {
+      const style = document.createElement("style");
+      style.id = ZAAPI_STYLE_ID;
+      style.textContent = `
+        #${ZAAPI_PANEL_ID} {
+          position: fixed !important;
+          z-index: 2147483647 !important;
+          width: 250px !important;
+          max-width: calc(100vw - 32px) !important;
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: max-content !important;
+          border-radius: 9px !important;
+          background: #1e222b !important;
+          color: #f1f5f9 !important;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.40) !important;
+          border: 1px solid #333a48 !important;
+          font: 12px Arial, Tahoma, sans-serif !important;
+          overflow: hidden !important;
+          display: block;
+          transition: border-color .18s ease, box-shadow .18s ease;
+        }
+        #${ZAAPI_PANEL_ID} * { box-sizing: border-box; }
+        #${ZAAPI_PANEL_ID}:hover {
+          border-color: #475569 !important;
+          box-shadow: 0 6px 24px rgba(0, 0, 0, 0.48) !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-header {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          padding: 5px 8px !important;
+          background: #181b22 !important;
+          border-bottom: 1px solid #2d3340 !important;
+          cursor: move !important;
+          user-select: none !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-title {
+          font-weight: 700 !important;
+          font-size: 11.5px !important;
+          color: #f1f5f9 !important;
+          display: flex !important;
+          align-items: center !important;
+          gap: 5px !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-title-brand {
+          color: #ef4444 !important;
+          font-weight: 800 !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-controls {
+          display: flex !important;
+          align-items: center !important;
+          gap: 3px !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-controls button {
+          border: 0 !important;
+          background: #2a303c !important;
+          color: #cbd5e1 !important;
+          width: 18px !important;
+          height: 18px !important;
+          border-radius: 4px !important;
+          cursor: pointer !important;
+          font-size: 11px !important;
+          font-weight: 700 !important;
+          display: inline-flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          padding: 0 !important;
+          transition: background .15s ease, color .15s ease;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-controls button:hover {
+          background: #374151 !important;
+          color: #ffffff !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-body {
+          padding: 6px 8px !important;
+          display: flex !important;
+          flex-direction: column !important;
+          gap: 5px !important;
+          height: auto !important;
+          min-height: 0 !important;
+        }
+        #${ZAAPI_PANEL_ID}[data-collapsed="true"] .ihc-zaapi-body {
+          display: none !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-input-group {
+          display: flex !important;
+          align-items: center !important;
+          gap: 5px !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-input {
+          flex: 1 !important;
+          min-width: 0 !important;
+          padding: 5px 7px !important;
+          border: 1px solid #333a48 !important;
+          border-radius: 6px !important;
+          font: 11.5px Arial, Tahoma, sans-serif !important;
+          color: #f8fafc !important;
+          outline: none !important;
+          background: #11141a !important;
+          transition: border-color .15s ease, box-shadow .15s ease;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-input:focus {
+          border-color: #ef4444 !important;
+          box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.22) !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-btn-search {
+          border: 0 !important;
+          border-radius: 6px !important;
+          background: #d71920 !important;
+          color: #ffffff !important;
+          padding: 5px 9px !important;
+          font: 700 11.5px Arial, Tahoma, sans-serif !important;
+          cursor: pointer !important;
+          white-space: nowrap !important;
+          transition: background .15s ease, transform .1s ease;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-btn-search:hover {
+          background: #b9151b !important;
+        }
+        #${ZAAPI_PANEL_ID} .ihc-zaapi-btn-search:active {
+          transform: scale(0.97) !important;
+        }
+        #${ZAAPI_PANEL_ID}-launcher {
+          position: fixed !important;
+          right: 20px !important;
+          bottom: 20px !important;
+          z-index: 2147483647 !important;
+          border: 0 !important;
+          border-radius: 14px !important;
+          padding: 5px 10px !important;
+          background: #d71920 !important;
+          color: #fff !important;
+          box-shadow: 0 3px 12px rgba(215, 25, 32, 0.35) !important;
+          font: 700 11.5px Arial, Tahoma, sans-serif !important;
+          cursor: pointer !important;
+          display: none;
+          align-items: center !important;
+          gap: 4px !important;
+          transition: background .15s ease, transform .1s ease;
+        }
+        #${ZAAPI_PANEL_ID}-launcher:hover {
+          background: #b9151b !important;
+          transform: translateY(-1px) !important;
+        }
+      `;
+      document.documentElement.appendChild(style);
+    }
+
+    const panel = document.createElement("div");
+    panel.id = ZAAPI_PANEL_ID;
+    panel.style.right = "20px";
+    panel.style.bottom = "20px";
+    panel.innerHTML = `
+      <div class="ihc-zaapi-header">
+        <span class="ihc-zaapi-title">
+          <span class="ihc-zaapi-title-brand">iHAVECPU</span> • ค้นหาสินค้า
+        </span>
+        <div class="ihc-zaapi-controls">
+          <button type="button" data-zaapi-action="collapse" title="ย่อหน้าต่าง" aria-label="ย่อหน้าต่าง">−</button>
+          <button type="button" data-zaapi-action="hide" title="ซ่อนหน้าต่าง" aria-label="ซ่อนหน้าต่าง">×</button>
+        </div>
+      </div>
+      <div class="ihc-zaapi-body">
+        <div class="ihc-zaapi-input-group">
+          <input type="text"
+                 class="ihc-zaapi-input"
+                 placeholder="พิมพ์ค้นหา iHAVECPU..."
+                 aria-label="พิมพ์ค้นหาสินค้าใน iHAVECPU" />
+          <button type="button" class="ihc-zaapi-btn-search">ค้นหา</button>
+        </div>
+      </div>
+    `;
+
+    const inputEl = panel.querySelector(".ihc-zaapi-input");
+    const searchBtn = panel.querySelector(".ihc-zaapi-btn-search");
+
+    const doSearch = async () => {
+      const keyword = (inputEl?.value || "").trim();
+      if (!keyword) {
+        showToast("กรุณาพิมพ์ชื่อสินค้าที่ต้องการค้นหา", true);
+        inputEl?.focus();
+        return;
+      }
+      showToast(`กำลังส่งคำค้นหา "${keyword}" ไปยังหน้าเว็บ iHAVECPU...`);
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: "SEARCH_IHAVECPU_FROM_ZAAPI",
+          keyword: keyword
+        });
+        if (!response?.ok) {
+          showToast(response?.error || "ค้นหาใน iHAVECPU ไม่สำเร็จ", true);
+        }
+      } catch (err) {
+        showToast(err.message || "ค้นหาใน iHAVECPU ไม่สำเร็จ", true);
+      }
+    };
+
+    searchBtn.addEventListener("click", doSearch);
+    inputEl.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doSearch();
+      }
+    });
+
+    const launcher = document.createElement("button");
+    launcher.id = `${ZAAPI_PANEL_ID}-launcher`;
+    launcher.type = "button";
+    launcher.innerHTML = `<span>🔍</span> <span>ค้นหา iHAVECPU</span>`;
+    launcher.addEventListener("click", () => {
+      panel.style.display = "block";
+      launcher.style.display = "none";
+      chrome.storage.local.set({ zaapiPanelHidden: false }).catch(() => {});
+      inputEl?.focus();
+    });
+
+    panel.addEventListener("click", (e) => {
+      const actionBtn = e.target.closest("button[data-zaapi-action]");
+      if (!actionBtn) return;
+      const action = actionBtn.dataset.zaapiAction;
+      if (action === "collapse") {
+        const collapsed = panel.dataset.collapsed !== "true";
+        panel.dataset.collapsed = String(collapsed);
+        actionBtn.textContent = collapsed ? "+" : "−";
+        actionBtn.setAttribute("aria-label", collapsed ? "ขยายหน้าต่าง" : "ย่อหน้าต่าง");
+        chrome.storage.local.set({ zaapiPanelCollapsed: collapsed }).catch(() => {});
+      } else if (action === "hide") {
+        panel.style.display = "none";
+        launcher.style.display = "inline-flex";
+        chrome.storage.local.set({ zaapiPanelHidden: true }).catch(() => {});
+      }
+    });
+
+    let drag = null;
+    const header = panel.querySelector(".ihc-zaapi-header");
+    header.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("button")) return;
+      const rect = panel.getBoundingClientRect();
+      drag = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+      panel.style.left = `${rect.left}px`;
+      panel.style.top = `${rect.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      header.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    header.addEventListener("pointermove", (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const left = Math.max(0, Math.min(innerWidth - panel.offsetWidth, event.clientX - drag.offsetX));
+      const top = Math.max(0, Math.min(innerHeight - panel.offsetHeight, event.clientY - drag.offsetY));
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    });
+    const finishDrag = async (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      drag = null;
+      const rect = panel.getBoundingClientRect();
+      chrome.storage.local.set({ zaapiPanelPosition: { left: rect.left, top: rect.top } }).catch(() => {});
+    };
+    header.addEventListener("pointerup", finishDrag);
+    header.addEventListener("pointercancel", finishDrag);
+
+    window.addEventListener("resize", () => {
+      if (!panel.style.left || !panel.style.top) return;
+      const rect = panel.getBoundingClientRect();
+      panel.style.left = `${Math.max(0, Math.min(innerWidth - panel.offsetWidth, rect.left))}px`;
+      panel.style.top = `${Math.max(0, Math.min(innerHeight - panel.offsetHeight, rect.top))}px`;
+    });
+
+    panel.style.display = "block";
+
+    const mount = () => {
+      const parent = document.body || document.documentElement;
+      if (!parent) return;
+      if (!document.getElementById(ZAAPI_PANEL_ID)) parent.appendChild(panel);
+      if (!document.getElementById(`${ZAAPI_PANEL_ID}-launcher`)) parent.appendChild(launcher);
+    };
+
+    chrome.storage.local.get({
+      zaapiPanelPosition: null,
+      zaapiPanelHidden: false,
+      zaapiPanelCollapsed: false
+    }).then((settings) => {
+      if (settings.zaapiPanelPosition && Number.isFinite(settings.zaapiPanelPosition.left) &&
+          Number.isFinite(settings.zaapiPanelPosition.top)) {
+        panel.style.left = `${Math.max(0, Math.min(innerWidth - panel.offsetWidth, settings.zaapiPanelPosition.left))}px`;
+        panel.style.top = `${Math.max(0, Math.min(innerHeight - panel.offsetHeight, settings.zaapiPanelPosition.top))}px`;
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+      }
+      if (settings.zaapiPanelCollapsed) {
+        panel.dataset.collapsed = "true";
+        panel.querySelector('[data-zaapi-action="collapse"]').textContent = "+";
+      }
+      panel.style.display = !settings.zaapiPanelHidden ? "block" : "none";
+      launcher.style.display = settings.zaapiPanelHidden ? "inline-flex" : "none";
+    }).catch(() => {});
+
+    if (document.body) {
+      mount();
+    } else {
+      window.addEventListener("DOMContentLoaded", mount);
+      setTimeout(mount, 300);
+      setTimeout(mount, 1000);
+    }
+  }
   let lastPageKey = "";
   let syncIntervalId = null;
   function syncPageControls() {
     if (!chrome?.runtime?.id) {
       if (syncIntervalId) clearInterval(syncIntervalId);
+      return;
+    }
+    if (location.hostname === "app.zaapi.com") {
+      initZaapiSearchPanel();
       return;
     }
     const isIhc = /^https:\/\/(www\.)?ihavecpu\.com\//i.test(location.href);
@@ -1044,8 +1449,8 @@
     }
     return false;
   }
-
   if (location.hostname === "app.zaapi.com") {
+    initZaapiSearchPanel();
     let lastInteractionSentAt = 0;
     const notifyZaapiInteraction = () => {
       const now = Date.now();
@@ -1110,6 +1515,12 @@
           sendResponse(result);
         })
         .catch((error) => sendResponse({ ok: false, error: error.message || "ใส่ข้อความใน Zaapi ไม่สำเร็จ" }));
+      return true;
+    }
+    if (message?.type === "FILL_AND_SEARCH_IHAVECPU") {
+      fillAndSearchIhavecpu(message.keyword)
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
       return true;
     }
     if (message?.type === "SHOW_STATUS") {

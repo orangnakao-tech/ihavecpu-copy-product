@@ -634,6 +634,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "SEARCH_IHAVECPU_FROM_ZAAPI") {
+    if (!/^https:\/\/app\.zaapi\.com\//i.test(sender.url || "")) {
+      sendResponse({ error: "คำขอค้นหามาจากเว็บไซต์ที่ไม่ได้รับอนุญาต" });
+      return;
+    }
+    recordUsageAction("ค้นหาสินค้า iHAVECPU จาก Zaapi");
+    searchIhavecpuFromZaapi(message.keyword)
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({ error: error.message || "ค้นหาสินค้าใน iHAVECPU ไม่สำเร็จ" });
+      });
+    return true;
+  }
+
   if (message?.type !== "PREPARE_ZAAPI_PRODUCT") return;
   if (!/^https:\/\/(www\.)?ihavecpu\.com\//i.test(sender.url || "")) {
     sendResponse({ error: "คำขอทำงานกับ Zaapi มาจากเว็บไซต์ที่ไม่ได้รับอนุญาต" });
@@ -710,6 +724,82 @@ async function showTabStatus(tabId, message, isError = false) {
       await delay(200);
     }
   }
+}
+
+async function searchIhavecpuFromZaapi(keyword) {
+  const cleanKeyword = String(keyword || "").trim();
+  if (!cleanKeyword) {
+    throw new Error("กรุณาระบุคำค้นหาสินค้า");
+  }
+
+  const searchUrl = `https://www.ihavecpu.com/category?keyword=${encodeURIComponent(cleanKeyword)}`;
+
+  // 1. ค้นหาแท็บ ihavecpu ที่เปิดอยู่แล้ว
+  const allTabs = await chrome.tabs.query({
+    url: ["https://ihavecpu.com/*", "https://www.ihavecpu.com/*"]
+  });
+
+  let targetTab = allTabs.find((t) => t.id && !t.url?.includes("/diy/share/")) || allTabs[0];
+
+  if (targetTab?.id) {
+    await chrome.tabs.update(targetTab.id, { active: true });
+    if (targetTab.windowId) {
+      await chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => {});
+    }
+
+    try {
+      const res = await chrome.tabs.sendMessage(targetTab.id, {
+        type: "FILL_AND_SEARCH_IHAVECPU",
+        keyword: cleanKeyword
+      });
+      if (res?.ok) return { ok: true, tabId: targetTab.id };
+    } catch (err) {
+      console.warn("Could not message existing ihavecpu tab, navigating to search URL:", err);
+    }
+
+    await chrome.tabs.update(targetTab.id, { url: searchUrl });
+    return { ok: true, tabId: targetTab.id };
+  }
+
+  // 2. ถ้ายังไม่มีแท็บ ihavecpu ให้เปิดแท็บใหม่
+  const newTab = await chrome.tabs.create({
+    url: "https://www.ihavecpu.com/",
+    active: true
+  });
+
+  let loaded = false;
+  const loadPromise = new Promise((resolve) => {
+    const onUpdated = (tabId, info) => {
+      if (tabId === newTab.id && info.status === "complete") {
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        loaded = true;
+        resolve(true);
+      }
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(false);
+    }, 8000);
+  });
+
+  await loadPromise;
+
+  if (loaded && newTab.id) {
+    try {
+      await delay(600);
+      const res = await chrome.tabs.sendMessage(newTab.id, {
+        type: "FILL_AND_SEARCH_IHAVECPU",
+        keyword: cleanKeyword
+      });
+      if (res?.ok) return { ok: true, tabId: newTab.id };
+    } catch {}
+  }
+
+  if (newTab.id) {
+    await chrome.tabs.update(newTab.id, { url: searchUrl });
+  }
+  return { ok: true, tabId: newTab.id };
 }
 
 function getDIYShareKey(value) {
@@ -1653,7 +1743,19 @@ async function quickCheckDiskUpdate() {
 
 chrome.tabs.onActivated.addListener(() => {
   quickCheckDiskUpdate();
+  pollAdminUpdateNotices().catch(() => {});
+  sendMachineHeartbeat(false).catch(() => {});
 });
+
+if (chrome.windows?.onFocusChanged) {
+  chrome.windows.onFocusChanged.addListener((winId) => {
+    if (winId !== chrome.windows.WINDOW_ID_NONE) {
+      quickCheckDiskUpdate();
+      pollAdminUpdateNotices().catch(() => {});
+      sendMachineHeartbeat(false).catch(() => {});
+    }
+  });
+}
 
 let lastProtocolUpdaterTriggerAt = 0;
 
@@ -1666,9 +1768,9 @@ function sanitizeStaffName(rawName) {
   return clean;
 }
 
-async function triggerProtocolUpdaterInOpenTab() {
+async function triggerProtocolUpdaterInOpenTab(force = false) {
   const now = Date.now();
-  if (now - lastProtocolUpdaterTriggerAt < 3 * 60 * 1000) return false;
+  if (!force && now - lastProtocolUpdaterTriggerAt < 3 * 60 * 1000) return false;
   lastProtocolUpdaterTriggerAt = now;
   try {
     const tabs = await chrome.tabs.query({});
@@ -1719,6 +1821,7 @@ async function checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated = true } = {})
       }
     });
     await sendMachineHeartbeat(true, diskVersion);
+    await delay(120);
     chrome.runtime.reload();
     return { loadedVersion, diskVersion, remoteVersion, diskNeedsReload: true, reloaded: true };
   }
@@ -1902,7 +2005,70 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
+  if (message?.type === "KEEP_ALIVE_HEARTBEAT") {
+    sendMachineHeartbeat(false).catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (message?.type === "CHECK_TARGET_AND_DISPLAY_NOTICE") {
+    (async () => {
+      try {
+        const isTarget = await isNoticeTargetingThisMachine(message.notice);
+        if (isTarget) {
+          const isForce = Boolean(message?.notice?.forceUpdate);
+          const isSilent = Boolean(message?.notice?.silent || message?.notice?.forceUpdate);
+          checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true }).catch(() => {});
+          triggerProtocolUpdaterInOpenTab(isForce).catch(() => {});
+          sendMachineHeartbeat(true).catch(() => {});
+          sendResponse({
+            shouldShow: !isSilent && Boolean(message?.notice?.message?.trim()),
+            message: String(message?.notice?.message || "").trim()
+          });
+        } else {
+          sendResponse({ shouldShow: false });
+        }
+      } catch (err) {
+        sendResponse({ shouldShow: false, error: err.message });
+      }
+    })();
+    return true;
+  }
 });
+
+async function isNoticeTargetingThisMachine(notice) {
+  if (!notice || (notice.type !== "admin-update-notice" && notice.type !== "admin-force-update")) return false;
+  if (notice.targetMachineId === "*") return true;
+  if (typeof notice.targetMachineId !== "string" || !notice.targetMachineId) return false;
+
+  let machineId = "";
+  try {
+    const deviceInfoResponse = await fetch(chrome.runtime.getURL("device-info.json"), { cache: "no-store" });
+    if (deviceInfoResponse.ok) {
+      const deviceInfo = await deviceInfoResponse.json();
+      machineId = deviceInfo?.machineId || "";
+    }
+  } catch {}
+
+  const { machineUid = "", cachedStaffName = "" } = await chrome.storage.local.get({
+    machineUid: "",
+    cachedStaffName: ""
+  });
+  const myIds = new Set([machineId, machineUid].filter(Boolean));
+  const targetIds = new Set([
+    notice.targetMachineId,
+    ...(Array.isArray(notice.targetMachineIds) ? notice.targetMachineIds : [])
+  ].filter(Boolean));
+
+  for (const id of myIds) {
+    if (targetIds.has(id)) return true;
+  }
+  if (notice.targetStaff && cachedStaffName) {
+    if (sanitizeStaffName(notice.targetStaff) === sanitizeStaffName(cachedStaffName)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 async function initializeAdminNoticeCursor() {
   const { adminNoticeCursor } = await chrome.storage.local.get({ adminNoticeCursor: "" });
@@ -1966,18 +2132,22 @@ async function pollAdminUpdateNotices() {
   const seenSet = new Set(Array.isArray(adminNoticeSeenIds) ? adminNoticeSeenIds : []);
   const since = adminNoticeCursor || "10m";
   const pollUrls = [
-    `https://ntfy.sh/${MACHINE_STATS_TOPIC}/json?poll=1&since=${encodeURIComponent(since)}`,
-    `https://ntfy.envs.net/${MACHINE_STATS_TOPIC}/json?poll=1&since=10m`
+    `https://ntfy.envs.net/${MACHINE_STATS_TOPIC}/json?poll=1&since=10m`,
+    `https://ntfy.sh/${MACHINE_STATS_TOPIC}/json?poll=1&since=${encodeURIComponent(since)}`
   ];
 
   let lines = [];
   for (const url of pollUrls) {
     try {
-      const response = await fetch(url, { cache: "no-store" });
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 3500);
+      const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+      clearTimeout(tid);
       if (response.ok) {
         const text = (await response.text()).trim();
         if (text) {
           lines.push(...text.split("\n"));
+          break; // envs.net succeeded fast; avoid waiting on degraded fallback
         }
       }
     } catch {}
@@ -1994,7 +2164,7 @@ async function pollAdminUpdateNotices() {
     } catch (error) {
       continue;
     }
-    if (event.id && urlFromNtfySh(event)) cursor = event.id;
+    if (event.id) cursor = event.id;
     if (event.event !== "message" || typeof event.message !== "string") continue;
 
     let notice;
@@ -2003,70 +2173,44 @@ async function pollAdminUpdateNotices() {
     } catch {
       continue;
     }
-    if (notice?.type !== "admin-update-notice" ||
-        typeof notice.message !== "string" ||
-        notice.message.trim().length === 0 ||
-        notice.message.length > 240) {
+    const isNotice = notice?.type === "admin-update-notice";
+    const isForceUpdate = notice?.type === "admin-force-update" || Boolean(notice?.forceUpdate);
+    if (!isNotice && !isForceUpdate) {
+      continue;
+    }
+    if (isNotice && (!notice.message || typeof notice.message !== "string" || notice.message.length > 240)) {
       continue;
     }
 
-    const dedupKey = `${notice.sentAt || event.time || event.id}_${notice.targetMachineId}_${notice.message.trim()}`;
+    const noticeMsg = typeof notice.message === "string" ? notice.message.trim() : "";
+    const dedupKey = `${notice.sentAt || event.time || event.id}_${notice.targetMachineId}_${notice.type}_${noticeMsg}`;
     if (seenSet.has(dedupKey)) continue;
     seenSet.add(dedupKey);
 
-    if (notice.targetMachineId !== "*") {
-      if (typeof notice.targetMachineId !== "string" || !notice.targetMachineId) continue;
-      if (machineId === undefined) {
-        machineId = "";
-        try {
-          const deviceInfoResponse = await fetch(chrome.runtime.getURL("device-info.json"), { cache: "no-store" });
-          if (deviceInfoResponse.ok) {
-            const deviceInfo = await deviceInfoResponse.json();
-            machineId = deviceInfo?.machineId || "";
-          }
-        } catch {}
-      }
-      const { machineUid = "", cachedStaffName = "" } = await chrome.storage.local.get({
-        machineUid: "",
-        cachedStaffName: ""
-      });
-      const myIds = new Set([machineId, machineUid].filter(Boolean));
-      const targetIds = new Set([
-        notice.targetMachineId,
-        ...(Array.isArray(notice.targetMachineIds) ? notice.targetMachineIds : [])
-      ].filter(Boolean));
-
-      let isTargetMatch = false;
-      for (const id of myIds) {
-        if (targetIds.has(id)) {
-          isTargetMatch = true;
-          break;
-        }
-      }
-      if (!isTargetMatch && notice.targetStaff && cachedStaffName) {
-        if (sanitizeStaffName(notice.targetStaff) === sanitizeStaffName(cachedStaffName)) {
-          isTargetMatch = true;
-        }
-      }
-      if (!isTargetMatch) continue;
-    }
+    const isTarget = await isNoticeTargetingThisMachine(notice);
+    if (!isTarget) continue;
 
     // Trigger background update check & protocol updater immediately when notified by admin
+    const isForce = Boolean(notice?.forceUpdate);
+    const isSilent = Boolean(notice?.silent || notice?.forceUpdate);
     checkDiskAndRemoteUpdate({ autoReloadIfDiskUpdated: true }).catch(() => {});
-    triggerProtocolUpdaterInOpenTab().catch(() => {});
+    triggerProtocolUpdaterInOpenTab(isForce).catch(() => {});
+    sendMachineHeartbeat(true).catch(() => {});
 
-    const displayedCount = await showAdminNoticeOnOpenPages(notice.message.trim());
-    if (!displayedCount) {
-      try {
-        await chrome.notifications.create(`ihc-admin-update-${event.id}`, {
-          type: "basic",
-          iconUrl: chrome.runtime.getURL("notification.svg"),
-          title: "แจ้งเตือนอัปเดต iHAVECPU",
-          message: notice.message.trim(),
-          priority: 2
-        });
-      } catch (error) {
-        console.warn("Could not show the system update notification:", error);
+    if (!isSilent && notice.message && typeof notice.message === "string" && notice.message.trim()) {
+      const displayedCount = await showAdminNoticeOnOpenPages(notice.message.trim());
+      if (!displayedCount) {
+        try {
+          await chrome.notifications.create(`ihc-admin-update-${event.id}`, {
+            type: "basic",
+            iconUrl: chrome.runtime.getURL("notification.svg"),
+            title: "แจ้งเตือนอัปเดต iHAVECPU",
+            message: notice.message.trim(),
+            priority: 2
+          });
+        } catch (error) {
+          console.warn("Could not show the system update notification:", error);
+        }
       }
     }
   }
@@ -2149,7 +2293,8 @@ async function recordUsageAction(actionName, details = "") {
 
 async function sendMachineHeartbeat(force = false, overrideVersion = "") {
   const now = Date.now();
-  if (!force && now - lastHeartbeatSentAt < 5 * 60 * 1000) return;
+  const minInterval = 35 * 1000;
+  if (!force && now - lastHeartbeatSentAt < minInterval) return;
   lastHeartbeatSentAt = now;
   try {
     let deviceInfo = null;
@@ -2229,37 +2374,37 @@ async function sendMachineHeartbeat(force = false, overrideVersion = "") {
 
     const bodyStr = JSON.stringify(payload);
     let sentOk = false;
+    // 1. Primary high-speed delivery to ntfy.envs.net
     try {
-      const res = await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}`, {
+      const res = await fetch(`https://ntfy.envs.net/${MACHINE_STATS_TOPIC}`, {
         method: "POST",
         body: bodyStr,
-        headers: { "Content-Type": "text/plain; charset=utf-8" }
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        keepalive: true
       });
       if (res.ok) sentOk = true;
     } catch {}
 
+    // 2. Fallback to ntfy.sh (with fast 3s timeout to avoid service worker hangs)
     if (!sentOk) {
       try {
-        await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}/publish?message=${encodeURIComponent(bodyStr)}`, {
-          method: "GET",
-          mode: "no-cors",
-          cache: "no-store"
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 3000);
+        await fetch(`https://ntfy.sh/${MACHINE_STATS_TOPIC}`, {
+          method: "POST",
+          body: bodyStr,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+          keepalive: true,
+          signal: controller.signal
         });
+        clearTimeout(tid);
       } catch {}
     }
-
-    try {
-      await fetch(`https://ntfy.envs.net/${MACHINE_STATS_TOPIC}`, {
-        method: "POST",
-        body: bodyStr,
-        headers: { "Content-Type": "text/plain; charset=utf-8" }
-      });
-    } catch {}
   } catch {}
 }
 
 const HEARTBEAT_ALARM_NAME = "ihavecpu-stat-heartbeat";
-chrome.alarms.create(HEARTBEAT_ALARM_NAME, { periodInMinutes: 5 });
+chrome.alarms.create(HEARTBEAT_ALARM_NAME, { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === HEARTBEAT_ALARM_NAME) {
     sendMachineHeartbeat(false);
